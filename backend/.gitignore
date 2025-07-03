@@ -1,0 +1,42 @@
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+
+# Arquivos de cache Python
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+
+# VSCode
+.vscode/
+
+# Streamlit
+.streamlit/config.toml
+.streamlit/secrets.toml
+
+# Arquivos temporários e backups
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+
+# Arquivos de sistema e ocultos
+.idea/
+*.~*
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Exportações
+*.pdf
+*.xlsx
+*.csv
+
+# Dados sensíveis
+.env
