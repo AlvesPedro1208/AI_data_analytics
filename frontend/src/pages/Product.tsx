@@ -97,34 +97,17 @@ const Product = () => {
     { day: 13, visitors: 120 }, { day: 14, visitors: 200 }, { day: 15, visitors: 180 }
   ];
 
-  // Função para processar comandos especiais da IA
-  const processAiResponse = (response: string) => {
-    // Procura por comandos de gráfico no formato: [CHART:tipo:titulo:dados]
-    const chartRegex = /\[CHART:(.*?)\]/g;
-    let processedResponse = response;
-    const matches = [...response.matchAll(chartRegex)];
-
-    matches.forEach(match => {
-      try {
-        const chartData = JSON.parse(match[1]);
-        const newChart: DynamicChart = {
-          id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          type: chartData.type,
-          title: chartData.title,
-          data: chartData.data,
-          config: chartData.config
-        };
-
-        setDynamicCharts(prev => [...prev, newChart]);
-        
-        // Remove o comando da resposta
-        processedResponse = processedResponse.replace(match[0], `📊 Gráfico "${chartData.title}" foi adicionado à dashboard!`);
-      } catch (error) {
-        console.error('Erro ao processar comando de gráfico:', error);
-      }
-    });
-
-    return processedResponse;
+  // Função para detectar se a pergunta é sobre criação de gráfico
+  const isChartRequest = (pergunta: string): boolean => {
+    const chartKeywords = [
+      'gráfico', 'grafico', 'chart', 'visualização', 'visualizacao',
+      'plot', 'dashboard', 'barra', 'linha', 'pizza', 'pie',
+      'bar', 'line', 'mostrar', 'plotar', 'criar gráfico'
+    ];
+    
+    return chartKeywords.some(keyword => 
+      pergunta.toLowerCase().includes(keyword.toLowerCase())
+    );
   };
 
   // Função para remover gráfico dinâmico
@@ -136,12 +119,81 @@ const Product = () => {
     if (!message.trim()) return;
 
     setChatMessages(prev => [...prev, { type: 'user', content: message }]);
+    const currentMessage = message;
     setMessage('');
     setIsAiLoading(true);
 
     try {
+      // Verifica se é uma solicitação de gráfico
+      if (isChartRequest(currentMessage) && (lastUploadedSheet.url || lastUploadedSheet.file)) {
+        // Faz duas chamadas: uma para o gráfico e uma para a resposta
+        await Promise.all([
+          handleChartRequest(currentMessage),
+          handleRegularRequest(currentMessage)
+        ]);
+      } else {
+        // Apenas resposta regular
+        await handleRegularRequest(currentMessage);
+      }
+    } catch (error) {
+      console.error('Erro geral:', error);
+      setChatMessages(prev => [...prev, { type: 'ai', content: 'Erro ao se comunicar com o servidor.' }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleChartRequest = async (pergunta: string) => {
+    try {
+      const body = {
+        pedido: pergunta,
+        google_sheets_url: lastUploadedSheet.url || undefined
+      };
+
+      const response = await fetch('http://127.0.0.1:8000/gerar-grafico', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const chartConfig = await response.json();
+
+      if (chartConfig && chartConfig.type) {
+        const newChart: DynamicChart = {
+          id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          type: chartConfig.type,
+          title: chartConfig.title || 'Gráfico Gerado',
+          data: chartConfig.data || [],
+          config: chartConfig.config
+        };
+
+        setDynamicCharts(prev => [...prev, newChart]);
+        setChatMessages(prev => [...prev, {
+          type: 'ai',
+          content: `📊 Gráfico "${newChart.title}" foi adicionado à dashboard!`
+        }]);
+      } else {
+        console.error('Erro na configuração do gráfico:', chartConfig);
+        setChatMessages(prev => [...prev, {
+          type: 'ai',
+          content: 'Não foi possível gerar o gráfico solicitado. Tente reformular sua pergunta.'
+        }]);
+      }
+    } catch (error) {
+      console.error('Erro ao gerar gráfico:', error);
+      setChatMessages(prev => [...prev, {
+        type: 'ai',
+        content: 'Ocorreu um erro ao gerar o gráfico.'
+      }]);
+    }
+  };
+
+  const handleRegularRequest = async (pergunta: string) => {
+    try {
       let formData = new FormData();
-      formData.append('pergunta', message);
+      formData.append('pergunta', pergunta);
 
       if (lastUploadedSheet.url) {
         formData.append('google_sheets_url', lastUploadedSheet.url);
@@ -157,16 +209,12 @@ const Product = () => {
       const data = await response.json();
 
       if (data.resposta) {
-        const processedResponse = processAiResponse(data.resposta);
-        setChatMessages(prev => [...prev, { type: 'ai', content: processedResponse }]);
+        setChatMessages(prev => [...prev, { type: 'ai', content: data.resposta }]);
       } else {
         setChatMessages(prev => [...prev, { type: 'ai', content: 'Ocorreu um erro ao obter a resposta.' }]);
       }
     } catch (error) {
-      console.error(error);
-      setChatMessages(prev => [...prev, { type: 'ai', content: 'Erro ao se comunicar com o servidor.' }]);
-    } finally {
-      setIsAiLoading(false);
+      console.error('Erro na pergunta regular:', error);
     }
   };
 

@@ -19,6 +19,10 @@ if not TOGETHER_API_KEY:
 TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
 TOGETHER_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
+# TOGETHER_URL = "https://api.openai.com/v1/chat/completions"
+# TOGETHER_MODEL = "gpt-4"
+KEY_RESPONSE = TOGETHER_API_KEY
+
 def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     try:
         idioma = detect(pergunta)
@@ -50,7 +54,7 @@ def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     }
 
     headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Authorization": f"Bearer {KEY_RESPONSE}",
         "Content-Type": "application/json"
     }
 
@@ -70,54 +74,75 @@ def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
         return f"Erro ao processar resposta da IA: {str(e)}"
 
 def gerar_configuracao_grafico(df: pd.DataFrame, pedido_usuario: str) -> dict:
+    # Reduz o dataframe e limita as colunas apenas ao necessário
+    df_preview = df.copy()
+    if df.shape[0] > 10:
+        df_preview = df.head(10)
+
+    markdown_dados = df_preview.to_markdown(index=False)
+
     prompt = f"""
-Você é um assistente de análise de dados e especialista em storytelling com dados. Abaixo está uma amostra da planilha carregada:
+    Você é um assistente de análise de dados e especialista em visualizações. Com base na seguinte planilha:
 
-{df.head(10).to_markdown(index=False)}
+    {markdown_dados}
 
-O usuário fez a seguinte solicitação de visualização: "{pedido_usuario}"
+    Crie uma visualização com base no pedido do usuário: "{pedido_usuario}"
+    
+    ➡️ Interprete o tipo de gráfico mais adequado (barra, linha, pizza, etc) e gere um JSON estruturado para essa visualização.
+    Responda apenas com um JSON puro no seguinte formato:
 
-Sua tarefa:
-1. Analise o pedido e os dados fornecidos.
-2. Escolha o **tipo ideal de gráfico** com base nas boas práticas de visualização (barras, linha ou pizza).
-3. Retorne **apenas um JSON** no formato abaixo, que será utilizado para renderizar o gráfico:
-
-{{
-  "type": "bar",         # ou "line", ou "pie"
-  "title": "Título do gráfico",
-  "data": [...],         # lista de dicionários com os dados (máximo 50)
-  "config": {{
-    "xKey": "nome_coluna_x",      # se aplicável
-    "yKey": "nome_coluna_y",      # se aplicável
-    "dataKey": "nome_coluna_valor"  # para gráfico de pizza
-  }}
-}}
-
-Responda apenas com o JSON válido.
-"""
-
+    {{
+    "type": "bar",              // Tipo do gráfico: "bar", "line", "pie"
+    "title": "Título do gráfico",
+    "data": [
+        {{ "Categoria": "Exemplo 1", "Valor": 123 }},
+        {{ "Categoria": "Exemplo 2", "Valor": 456 }}
+    ],
+    "config": {{
+        "xKey": "Categoria",
+        "yKey": "Valor"
+    }}
+    }}
+    A resposta deve conter somente esse JSON. Não adicione nenhuma explicação.
+    """
 
     body = {
         "model": TOGETHER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 800
+        "max_tokens": 1500
     }
 
     headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Authorization": f"Bearer {KEY_RESPONSE}",
         "Content-Type": "application/json"
     }
 
     try:
         response = requests.post(TOGETHER_URL, headers=headers, json=body)
+        print("🔵 STATUS:", response.status_code)
+        print("🟡 RAW RESPONSE TEXT:", response.text)
         response.raise_for_status()
-        raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        match = re.search(r"{.*}", raw, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        else:
-            return {"erro": f"Resposta inesperada da IA: {raw}"}
+        raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        # remove marcações ```json ou ```
+        if raw.startswith("```json") or raw.startswith("```"):
+            raw = re.sub(r"^```(json)?", "", raw).strip()
+            raw = raw.rstrip("`").strip()
+
+        # tenta carregar diretamente
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            # tenta cortar até o último fechamento de }
+            end = raw.rfind("}")
+            if end != -1:
+                raw_truncado = raw[:end+1]
+                return json.loads(raw_truncado)
+            raise
+
     except Exception as e:
-        return {"erro": f"Erro ao requisitar IA: {str(e)}"}
+        raise RuntimeError(f"Falha ao gerar gráfico: {str(e)}")
+
+
