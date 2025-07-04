@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException
-from services.ia import gerar_insight_ia_together
+from services.ia import gerar_insight_ia_together, gerar_configuracao_grafico
 from utils.planilhas import ler_planilha
 from typing import Optional
+import json
 
 router = APIRouter()
 
@@ -20,8 +21,16 @@ async def responder(
         if df.empty:
             raise HTTPException(status_code=400, detail="A planilha está vazia ou não foi possível carregar os dados.")
 
-        resposta = gerar_insight_ia_together(df, pergunta)
+        # Detecta se o usuário quer um gráfico
+        pedido = pergunta.lower()
+        termos_grafico = ["gráfico", "visualização", "barras", "pizza", "linha", "mostrar gráfico", "plotar"]
+        if any(t in pedido for t in termos_grafico):
+            configuracao = gerar_configuracao_grafico(df, pergunta)
+            comando_chart = f"[CHART:{json.dumps(configuracao)}]"
+            return {"resposta": comando_chart}
 
+        # Caso contrário, responde normalmente
+        resposta = gerar_insight_ia_together(df, pergunta)
         return {"resposta": resposta}
 
     except HTTPException as http_error:

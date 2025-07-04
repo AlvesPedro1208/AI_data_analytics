@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { marked } from 'marked';
 import { 
   Dialog,
   DialogContent,
@@ -37,15 +36,28 @@ import {
   PieChart as PieChartIcon,
   LineChart as LineChartIcon,
   FileUp,
-  Link
+  Link,
+  X
 } from 'lucide-react';
+
+// Tipos para os gráficos dinâmicos
+interface DynamicChart {
+  id: string;
+  type: 'bar' | 'line' | 'pie';
+  title: string;
+  data: any[];
+  config?: {
+    xKey?: string;
+    yKey?: string;
+    colors?: string[];
+    dataKey?: string;
+  };
+}
 
 const Product = () => {
   const [message, setMessage] = useState('');
   const [chatMessages, setChatMessages] = useState([
-    { type: 'ai', content: 'Olá! Suas planilhas foram carregadas com sucesso. Pode me fazer perguntas sobre os dados ou pedir gráficos específicos.' },
-    { type: 'user', content: 'Qual foi o mês com mais vendas?' },
-    { type: 'ai', content: 'Baseado nos seus dados, o mês com mais vendas foi Janeiro com 89.5K em vendas totais.' }
+    { type: 'ai', content: 'Seja bem vindo a Lux, sua IA analista de dados e especialista em Business Intelligence!😉 Faça upload de uma planilha e me peça para criar visualizações dos seus dados!' },
   ]);
 
   // Estados para upload de planilha
@@ -57,6 +69,9 @@ const Product = () => {
 
   // Estado para controlar o carregamento da IA
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Estado para gráficos dinâmicos gerados pela IA
+  const [dynamicCharts, setDynamicCharts] = useState<DynamicChart[]>([]);
 
   const salesData = [
     { month: 'Jan', sales: 89500, visitors: 24700 },
@@ -81,6 +96,41 @@ const Product = () => {
     { day: 10, visitors: 400 }, { day: 11, visitors: 270 }, { day: 12, visitors: 110 },
     { day: 13, visitors: 120 }, { day: 14, visitors: 200 }, { day: 15, visitors: 180 }
   ];
+
+  // Função para processar comandos especiais da IA
+  const processAiResponse = (response: string) => {
+    // Procura por comandos de gráfico no formato: [CHART:tipo:titulo:dados]
+    const chartRegex = /\[CHART:(.*?)\]/g;
+    let processedResponse = response;
+    const matches = [...response.matchAll(chartRegex)];
+
+    matches.forEach(match => {
+      try {
+        const chartData = JSON.parse(match[1]);
+        const newChart: DynamicChart = {
+          id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          type: chartData.type,
+          title: chartData.title,
+          data: chartData.data,
+          config: chartData.config
+        };
+
+        setDynamicCharts(prev => [...prev, newChart]);
+        
+        // Remove o comando da resposta
+        processedResponse = processedResponse.replace(match[0], `📊 Gráfico "${chartData.title}" foi adicionado à dashboard!`);
+      } catch (error) {
+        console.error('Erro ao processar comando de gráfico:', error);
+      }
+    });
+
+    return processedResponse;
+  };
+
+  // Função para remover gráfico dinâmico
+  const removeChart = (chartId: string) => {
+    setDynamicCharts(prev => prev.filter(chart => chart.id !== chartId));
+  };
 
   const sendMessage = async () => {
     if (!message.trim()) return;
@@ -107,7 +157,8 @@ const Product = () => {
       const data = await response.json();
 
       if (data.resposta) {
-        setChatMessages(prev => [...prev, { type: 'ai', content: data.resposta }]);
+        const processedResponse = processAiResponse(data.resposta);
+        setChatMessages(prev => [...prev, { type: 'ai', content: processedResponse }]);
       } else {
         setChatMessages(prev => [...prev, { type: 'ai', content: 'Ocorreu um erro ao obter a resposta.' }]);
       }
@@ -115,8 +166,8 @@ const Product = () => {
       console.error(error);
       setChatMessages(prev => [...prev, { type: 'ai', content: 'Erro ao se comunicar com o servidor.' }]);
     } finally {
-    setIsAiLoading(false);
-  }
+      setIsAiLoading(false);
+    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,7 +207,7 @@ const Product = () => {
         const html = generateHtmlTable(previewData.columns, previewData.data);
         setChatMessages(prev => [...prev, {
           type: 'ai',
-          content: `<p><strong>Prévia da planilha carregada:</strong></p>${html}`
+          content: `<p><strong>Prévia da planilha carregada:</strong></p>${html}<p>Agora você pode me pedir para criar gráficos baseados nos seus dados! Por exemplo: "Crie um gráfico de barras dos valores por categoria" ou "Mostre um gráfico de pizza da distribuição de dados".</p>`
         }]);
 
         // Salva referência da planilha carregada
@@ -183,9 +234,9 @@ const Product = () => {
     setSpreadsheetUrl('');
   };
 
-function generateHtmlTable(columns: string[], data: any[]): string {
+  function generateHtmlTable(columns: string[], data: any[]): string {
     const headers = columns.map(col => `<th class="px-3 py-2 text-left font-medium text-sm text-gray-600">${col}</th>`).join('');
-    const rows = data.map(row => {
+    const rows = data.slice(0, 10).map(row => {
       const cells = columns.map(col => `<td class="px-3 py-2 text-sm text-gray-700 whitespace-nowrap">${row[col] ?? ''}</td>`).join('');
       return `<tr class="border-t">${cells}</tr>`;
     }).join('');
@@ -198,9 +249,77 @@ function generateHtmlTable(columns: string[], data: any[]): string {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+        ${data.length > 10 ? `<p class="text-xs text-gray-500 mt-2">Mostrando 10 de ${data.length} registros</p>` : ''}
       </div>
     `;
   }
+
+  // Função para renderizar gráficos dinâmicos
+  const renderDynamicChart = (chart: DynamicChart) => {
+    const colors = chart.config?.colors || ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+    
+    switch (chart.type) {
+      case 'bar':
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chart.data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey={chart.config?.xKey || 'name'} />
+              <YAxis />
+              <Tooltip />
+              <Bar 
+                dataKey={chart.config?.yKey || 'value'} 
+                fill={colors[0]} 
+                radius={[4, 4, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        );
+      
+      case 'line':
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chart.data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey={chart.config?.xKey || 'name'} />
+              <YAxis />
+              <Tooltip />
+              <Line 
+                type="monotone" 
+                dataKey={chart.config?.yKey || 'value'} 
+                stroke={colors[0]} 
+                strokeWidth={3}
+                dot={{ fill: colors[0], strokeWidth: 2, r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      
+      case 'pie':
+        return (
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={chart.data}
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+                dataKey={chart.config?.dataKey || 'value'}
+                label={({ name, value }) => `${name}: ${value}`}
+              >
+                {chart.data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        );
+      
+      default:
+        return <div>Tipo de gráfico não suportado</div>;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -307,6 +426,38 @@ function generateHtmlTable(columns: string[], data: any[]): string {
       <div className="flex h-[calc(100vh-80px)]">
         {/* Main Dashboard */}
         <div className="flex-1 p-6 overflow-y-auto">
+          {/* Gráficos Dinâmicos da IA */}
+          {dynamicCharts.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold mb-4 text-gray-800">📊 Visualizações Geradas pela IA</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {dynamicCharts.map((chart) => (
+                  <Card key={chart.id} className="hover:shadow-lg transition-shadow relative">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2 z-10 h-8 w-8 p-0"
+                      onClick={() => removeChart(chart.id)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <CardHeader>
+                      <CardTitle className="flex items-center text-lg">
+                        {chart.type === 'bar' && <BarChart3 className="h-5 w-5 mr-2 text-blue-600" />}
+                        {chart.type === 'line' && <LineChartIcon className="h-5 w-5 mr-2 text-green-600" />}
+                        {chart.type === 'pie' && <PieChartIcon className="h-5 w-5 mr-2 text-purple-600" />}
+                        {chart.title}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {renderDynamicChart(chart)}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Metrics Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <Card className="hover:shadow-lg transition-shadow">
@@ -453,7 +604,7 @@ function generateHtmlTable(columns: string[], data: any[]): string {
               <MessageCircle className="h-5 w-5 mr-2 text-blue-600" />
               Assistente IA
             </h3>
-            <p className="text-sm text-gray-600 mt-1">Faça perguntas sobre seus dados</p>
+            <p className="text-sm text-gray-600 mt-1">Faça perguntas sobre seus dados e peça visualizações</p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -476,34 +627,34 @@ function generateHtmlTable(columns: string[], data: any[]): string {
                 </div>
               </div>
             ))}
-              {/* Indicador de carregamento da IA */}
-              {isAiLoading && (
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] p-3 rounded-lg bg-gray-100 text-gray-800 mr-4">
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm text-gray-500">IA digitando</span>
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                      </div>
+            {/* Indicador de carregamento da IA */}
+            {isAiLoading && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] p-3 rounded-lg bg-gray-100 text-gray-800 mr-4">
+                  <div className="flex items-center space-x-1">
+                    <span className="text-sm text-gray-500">IA analisando</span>
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
           </div>
 
           <div className="p-4 border-t border-gray-200">
             <div className="flex space-x-2">
               <Input
-                placeholder="Ex: Mostre vendas por produto..."
+                placeholder="Ex: Crie um gráfico de barras das vendas por mês..."
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
                 className="flex-1"
                 disabled={isAiLoading}
               />
-              <Button onClick={sendMessage} size="sm">
+              <Button onClick={sendMessage} size="sm" disabled={isAiLoading}>
                 <Send className="h-4 w-4" />
               </Button>
             </div>

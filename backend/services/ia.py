@@ -19,7 +19,6 @@ if not TOGETHER_API_KEY:
 TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
 TOGETHER_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
-
 def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     try:
         idioma = detect(pergunta)
@@ -38,7 +37,7 @@ def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     Você é um assistente de análise de dados que responde de forma direta, curta e objetiva.
     Responda sempre em português do Brasil. Não adicione explicações desnecessárias.
     Foque apenas no que foi perguntado.
-    Com base nesses dados, responda à seguinte pergunta: "{pergunta}"
+    Com base nesses dados, responda à seguinte pergunta: \"{pergunta}\"
 
     {linguagem_prompt}
     """
@@ -70,54 +69,55 @@ def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     except Exception as e:
         return f"Erro ao processar resposta da IA: {str(e)}"
 
-
-
 def gerar_configuracao_grafico(df: pd.DataFrame, pedido_usuario: str) -> dict:
     prompt = f"""
-    Você é um assistente de análise de dados. Abaixo está uma amostra da planilha carregada:
+Você é um assistente de análise de dados e especialista em storytelling com dados. Abaixo está uma amostra da planilha carregada:
 
-    {df.head(10).to_markdown(index=False)}
+{df.head(10).to_markdown(index=False)}
 
-    A pessoa usuária digitou: "{pedido_usuario}"
+O usuário fez a seguinte solicitação de visualização: "{pedido_usuario}"
 
-    Responda com um JSON contendo:
-    - tipo: (linha, barra, pizza, dispersao)
-    - x: coluna do eixo X
-    - y: coluna do eixo Y (se aplicável)
+Sua tarefa:
+1. Analise o pedido e os dados fornecidos.
+2. Escolha o **tipo ideal de gráfico** com base nas boas práticas de visualização (barras, linha ou pizza).
+3. Retorne **apenas um JSON** no formato abaixo, que será utilizado para renderizar o gráfico:
 
-    Exemplo:
-    {{
-        "tipo": "barra",
-        "x": "Produto",
-        "y": "Lucro"
-    }}
+{{
+  "type": "bar",         # ou "line", ou "pie"
+  "title": "Título do gráfico",
+  "data": [...],         # lista de dicionários com os dados (máximo 50)
+  "config": {{
+    "xKey": "nome_coluna_x",      # se aplicável
+    "yKey": "nome_coluna_y",      # se aplicável
+    "dataKey": "nome_coluna_valor"  # para gráfico de pizza
+  }}
+}}
 
-    Gere apenas o JSON.
-    Responda no mesmo idioma da pergunta original.
-    """
+Responda apenas com o JSON válido.
+"""
 
-    url = TOGETHER_URL
-    headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
-        "Content-Type": "application/json"
-    }
 
     body = {
         "model": TOGETHER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 500
+        "max_tokens": 800
     }
 
-    response = requests.post(url, headers=headers, json=body).json()
-    raw = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    # Tenta extrair apenas o JSON puro da resposta
-    match = re.search(r"{.*}", raw, re.DOTALL)
-    if match:
-        try:
+    try:
+        response = requests.post(TOGETHER_URL, headers=headers, json=body)
+        response.raise_for_status()
+        raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        match = re.search(r"{.*}", raw, re.DOTALL)
+        if match:
             return json.loads(match.group())
-        except Exception as e:
-            return {"erro": f"Erro ao interpretar JSON: {str(e)} → {match.group()}"}
-    else:
-        return {"erro": f"Erro ao interpretar resposta da IA: {raw}"}
+        else:
+            return {"erro": f"Resposta inesperada da IA: {raw}"}
+    except Exception as e:
+        return {"erro": f"Erro ao requisitar IA: {str(e)}"}
