@@ -6,22 +6,18 @@ import json
 import re
 from langdetect import detect
 
-# Carrega o .env com caminho absoluto
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-# Lê a chave da IA
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-if not TOGETHER_API_KEY:
-    raise EnvironmentError("Variável TOGETHER_API_KEY não foi carregada. Verifique o arquivo .env")
-
-# Constantes da API
 TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
 TOGETHER_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
-# TOGETHER_URL = "https://api.openai.com/v1/chat/completions"
-# TOGETHER_MODEL = "gpt-4"
 KEY_RESPONSE = TOGETHER_API_KEY
+HEADERS = {
+    "Authorization": f"Bearer {KEY_RESPONSE}",
+    "Content-Type": "application/json"
+}
 
 def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     try:
@@ -73,75 +69,116 @@ def gerar_insight_ia_together(df: pd.DataFrame, pergunta: str) -> str:
     except Exception as e:
         return f"Erro ao processar resposta da IA: {str(e)}"
 
-def gerar_configuracao_grafico(df: pd.DataFrame, pedido_usuario: str) -> dict:
-    # Reduz o dataframe e limita as colunas apenas ao necessário
-    df_preview = df.copy()
-    if df.shape[0] > 10:
-        df_preview = df.head(10)
-
-    markdown_dados = df_preview.to_markdown(index=False)
+def interpretar_pedido_usuario(df: pd.DataFrame, pedido: str) -> dict:
+    df_preview = df.head(15)
+    markdown = df_preview.to_markdown(index=False)
 
     prompt = f"""
-    Você é um assistente de análise de dados e especialista em visualizações. Com base na seguinte planilha:
+    Você é um especialista em visualização de dados. Analise a tabela abaixo:
 
-    {markdown_dados}
+    {markdown}
 
-    Crie uma visualização com base no pedido do usuário: "{pedido_usuario}"
-    
-    ➡️ Interprete o tipo de gráfico mais adequado (barra, linha, pizza, etc) e gere um JSON estruturado para essa visualização.
-    Responda apenas com um JSON puro no seguinte formato:
+    Com base na tabela e no pedido do usuário: "{pedido}", identifique:
+    - tipo de gráfico (bar, line ou pie)
+    - coluna a ser usada no eixo X
+    - coluna a ser usada no eixo Y (se aplicável)
+    - título do gráfico
+
+    Responda apenas com um JSON como este:
 
     {{
-    "type": "bar",              // Tipo do gráfico: "bar", "line", "pie"
-    "title": "Título do gráfico",
-    "data": [
-        {{ "Categoria": "Exemplo 1", "Valor": 123 }},
-        {{ "Categoria": "Exemplo 2", "Valor": 456 }}
-    ],
-    "config": {{
-        "xKey": "Categoria",
-        "yKey": "Valor"
+    "type": "bar",
+    "xKey": "Data",
+    "yKey": "Vendas",
+    "title": "Vendas por Dia"
     }}
-    }}
-    A resposta deve conter somente esse JSON. Não adicione nenhuma explicação.
     """
 
     body = {
         "model": TOGETHER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 1500
+        "temperature": 0.4,
+        "max_tokens": 500
     }
 
-    headers = {
-        "Authorization": f"Bearer {KEY_RESPONSE}",
-        "Content-Type": "application/json"
+    response = requests.post(TOGETHER_URL, headers=HEADERS, json=body)
+    response.raise_for_status()
+
+    content = response.json()["choices"][0]["message"]["content"]
+
+    # Limpa código caso venha com ```json ou ```
+    if content.startswith("```"):
+        content = re.sub(r"^```(json)?", "", content).strip().rstrip("`")
+
+    # Remove blocos ```json ou ```
+    if content.startswith("```"):
+        content = re.sub(r"^```(json)?", "", content).strip().rstrip("`")
+
+    # Tenta extrair só o JSON principal
+    match = re.search(r"\{.*\}", content, re.DOTALL)
+    if match:
+        json_text = match.group(0)
+        return json.loads(json_text)
+
+    raise ValueError("Não foi possível extrair JSON válido da resposta da IA.")
+
+
+def montar_json_final(df: pd.DataFrame, params: dict) -> dict:
+    tipo = params.get("type")
+    x = params.get("xKey")
+    y = params.get("yKey")
+    titulo = params.get("title", "Gráfico Gerado")
+
+    if tipo not in {"bar", "line", "pie"}:
+        raise ValueError("Tipo de gráfico inválido.")
+
+    if tipo == "pie":
+        if not x or not y:
+            raise ValueError("Pie chart requer xKey e yKey")
+        data = df[[x, y]].dropna().head(20)
+        result = [
+            {
+                x: str(row[x]),
+                y: float(str(row[y]).replace('.', '').replace(',', '.'))
+            }
+            for _, row in data.iterrows()
+        ]
+        return {
+            "type": "pie",
+            "title": titulo,
+            "data": result,
+            "config": {
+                "dataKey": y
+            }
+        }
+
+    # bar ou line
+    if not x or not y:
+        raise ValueError("Gráficos de linha ou barra requerem xKey e yKey")
+
+    data = df[[x, y]].dropna().head(50)
+    result = [
+        {
+            x: str(row[x]),
+            y: float(str(row[y]).replace('.', '').replace(',', '.'))
+        }
+        for _, row in data.iterrows()
+    ]
+    return {
+        "type": tipo,
+        "title": titulo,
+        "data": result,
+        "config": {
+            "xKey": x,
+            "yKey": y
+        }
     }
 
+
+def gerar_configuracao_grafico(df: pd.DataFrame, pedido_usuario: str) -> dict:
     try:
-        response = requests.post(TOGETHER_URL, headers=headers, json=body)
-        print("🔵 STATUS:", response.status_code)
-        print("🟡 RAW RESPONSE TEXT:", response.text)
-        response.raise_for_status()
-
-        raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-
-        # remove marcações ```json ou ```
-        if raw.startswith("```json") or raw.startswith("```"):
-            raw = re.sub(r"^```(json)?", "", raw).strip()
-            raw = raw.rstrip("`").strip()
-
-        # tenta carregar diretamente
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            # tenta cortar até o último fechamento de }
-            end = raw.rfind("}")
-            if end != -1:
-                raw_truncado = raw[:end+1]
-                return json.loads(raw_truncado)
-            raise
-
+        interpretacao = interpretar_pedido_usuario(df, pedido_usuario)
+        return montar_json_final(df, interpretacao)
     except Exception as e:
         raise RuntimeError(f"Falha ao gerar gráfico: {str(e)}")
 
