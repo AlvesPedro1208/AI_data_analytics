@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Dialog,
   DialogContent,
@@ -10,6 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { AppSidebar } from '@/components/AppSidebar';
 import { 
   BarChart, 
   Bar, 
@@ -40,7 +43,9 @@ import {
   X,
   Moon,
   Sun,
-  ArrowLeft
+  ArrowLeft,
+  Plug,
+  Menu
 } from 'lucide-react';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useNavigate } from 'react-router-dom';
@@ -68,9 +73,10 @@ const Product = () => {
   ]);
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
-  const [uploadType, setUploadType] = useState<'file' | 'url'>('file');
+  const [uploadType, setUploadType] = useState<'file' | 'url' | 'api'>('file');
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedIntegration, setSelectedIntegration] = useState('');
   const [lastUploadedSheet, setLastUploadedSheet] = useState<{ url?: string; file?: File | null }>({});
 
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -366,51 +372,58 @@ const Product = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 transition-colors">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center space-x-4">
-            <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              DashboardAI
-            </div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Analytics Dashboard</div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            {/* Dark Mode Toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleDarkMode}
-              className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              {isDarkMode ? (
-                <Sun className="h-4 w-4 text-yellow-500" />
-              ) : (
-                <Moon className="h-4 w-4 text-gray-600" />
-              )}
-            </Button>
-
-            {/* Voltar Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate('/')}
-              className="h-9 px-3 hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar
-            </Button>
-
-            <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Nova Planilha
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-slate-50 dark:bg-gray-900 transition-colors">
+        <AppSidebar />
+        
+        <div className="flex-1 flex flex-col">
+          {/* Header */}
+          <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 transition-colors">
+            <div className="flex items-center justify-between max-w-7xl mx-auto">
+              <div className="flex items-center space-x-4">
+                <SidebarTrigger className="md:hidden">
+                  <Menu className="h-4 w-4" />
+                </SidebarTrigger>
+                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  DashboardAI
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Analytics Dashboard</div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                {/* Dark Mode Toggle */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleDarkMode}
+                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {isDarkMode ? (
+                    <Sun className="h-4 w-4 text-yellow-500" />
+                  ) : (
+                    <Moon className="h-4 w-4 text-gray-600" />
+                  )}
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md dark:bg-gray-800 dark:border-gray-700">
+
+                {/* Voltar Button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/')}
+                  className="h-9 px-3 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Voltar
+                </Button>
+
+                <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Nova Planilha
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md dark:bg-gray-800 dark:border-gray-700">
                 <DialogHeader>
                   <DialogTitle className="dark:text-white">Carregar Nova Planilha</DialogTitle>
                   <DialogDescription className="dark:text-gray-300">
@@ -419,8 +432,8 @@ const Product = () => {
                 </DialogHeader>
                 
                 <div className="space-y-4">
-                  {/* Toggle between file and URL */}
-                  <div className="flex space-x-2">
+                  {/* Toggle between file, URL and API */}
+                  <div className="grid grid-cols-3 gap-2">
                     <Button
                       variant={uploadType === 'file' ? 'default' : 'outline'}
                       onClick={() => setUploadType('file')}
@@ -436,6 +449,14 @@ const Product = () => {
                     >
                       <Link className="w-4 h-4 mr-2" />
                       Link/URL
+                    </Button>
+                    <Button
+                      variant={uploadType === 'api' ? 'default' : 'outline'}
+                      onClick={() => setUploadType('api')}
+                      className="flex-1"
+                    >
+                      <Plug className="w-4 h-4 mr-2" />
+                      API
                     </Button>
                   </div>
 
@@ -477,25 +498,46 @@ const Product = () => {
                     </div>
                   )}
 
+                  {/* API Integration */}
+                  {uploadType === 'api' && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium dark:text-gray-200">Selecionar Integração</label>
+                      <Select value={selectedIntegration} onValueChange={setSelectedIntegration}>
+                        <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                          <SelectValue placeholder="Escolha uma integração ativa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="facebook-ads-1">Facebook Ads - Conta Principal</SelectItem>
+                          <SelectItem value="google-ads-1">Google Ads - Campanhas 2024</SelectItem>
+                          <SelectItem value="instagram-1">Instagram Business - Perfil Principal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Importe dados em tempo real das suas integrações configuradas
+                      </p>
+                    </div>
+                  )}
+
                   <Button 
                     onClick={handleUploadSubmit}
                     disabled={
                       (uploadType === 'file' && !selectedFile) || 
-                      (uploadType === 'url' && !spreadsheetUrl)
+                      (uploadType === 'url' && !spreadsheetUrl) ||
+                      (uploadType === 'api' && !selectedIntegration)
                     }
                     className="w-full"
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Carregar Planilha
+                    {uploadType === 'api' ? 'Importar Dados' : 'Carregar Planilha'}
                   </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="flex h-[calc(100vh-80px)]">
+          <div className="flex h-[calc(100vh-80px)]">
         {/* Main Dashboard */}
         <div className="flex-1 p-6 overflow-y-auto">
           {/* Gráficos Dinâmicos da IA */}
@@ -754,8 +796,10 @@ const Product = () => {
             </div>
           </div>
         </div>
+        </div>
+        </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 };
 

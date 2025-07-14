@@ -1,45 +1,23 @@
+import requests
+import dotenv
 import os
-from openai import OpenAI
-from dotenv import load_dotenv
 
-# Carrega .env
-load_dotenv()
-api_key = os.getenv("TOGETHER_API_KEY")")
-client = OpenAI(api_key=api_key)
+dotenv.load_dotenv()
 
-# Prompt para teste
-prompt = """
-Você é um assistente de BI. Gere um JSON com o seguinte formato:
+access_token = os.getenv("ACCESS_TOKEN")
+ad_account_id = "act_428782437206685"
 
-{
-  "type": "bar",
-  "title": "Exemplo de Gráfico",
-  "data": [
-    { "Categoria": "A", "Valor": 10 },
-    { "Categoria": "B", "Valor": 20 }
-  ],
-  "config": {
-    "xKey": "Categoria",
-    "yKey": "Valor"
-  }
+url = f"https://graph.facebook.com/v19.0/{ad_account_id}/insights"
+
+params = {
+    "access_token": access_token,
+    "fields": "campaign_name,impressions,clicks,spend,cpm,ctr",
+    "time_range[since]": "2025-03-01",
+    "time_range[until]": "2025-12-31",
+    "level": "campaign"
 }
 
-Responda apenas com o JSON.
-"""
+response = requests.get(url, params=params)
 
-try:
-    response = client.chat.completions.create(
-        model="gpt-4o",  # ou gpt-3.5-turbo
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3,
-        max_tokens=1000,
-    )
-
-    content = response.choices[0].message.content
-    print("\n✅ Resposta da IA:\n")
-    print(content)
-
-except Exception as e:
-    print(f"\n❌ Erro: {e}")
+print("STATUS:", response.status_code)
+print("RESPOSTA:", response.json())
