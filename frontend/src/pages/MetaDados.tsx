@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { ProductLayout } from '@/components/ProductLayout';
+import { useToast } from "@/components/ui/use-toast";
 
 interface MetaAdsData {
   campaign_name: string;
@@ -36,10 +37,38 @@ const MetaDados = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<keyof MetaAdsData>("campaign_name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [contas, setContas] = useState<{ id: number; nome: string; account_id: string }[]>([]);
+  const [contaSelecionada, setContaSelecionada] = useState<string>("");
+  const { toast } = useToast();
 
   const itemsPerPage = 10;
 
   // Filtrar e ordenar dados
+  useEffect(() => {
+    const fetchContas = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/contas/");
+        const data = await res.json();
+
+        // Adapta os dados para o que o MetaDados precisa
+        const contasMeta = data
+          .filter((c: any) => ["Meta Ads", "Facebook Ads"].includes(c.plataforma) && c.ativo)
+          .map((c: any) => ({
+            id: c.id,
+            nome: c.nome_conta,
+            account_id: c.identificador_conta
+          }));
+
+        setContas(contasMeta);
+        if (contasMeta.length > 0) setContaSelecionada(contasMeta[0].account_id);
+      } catch (error) {
+        console.error("Erro ao buscar contas conectadas:", error);
+      }
+    };
+
+    fetchContas();
+  }, []);
+
   useEffect(() => {
     let filtered = dados.filter(item =>
       item.campaign_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -78,13 +107,13 @@ const MetaDados = () => {
     setLoading(true);
     try {
       const payload = {
-        access_token: "MOCK_TOKEN", // Será substituído pela integração real
-        account_id: "MOCK_ACCOUNT_ID", // Será substituído pela integração real
+        access_token: "MOCK_TOKEN",
+        account_id: contaSelecionada,
         data_inicial: format(dataInicial, "yyyy-MM-dd"),
         data_final: format(dataFinal, "yyyy-MM-dd")
       };
 
-      const response = await fetch("/meta/dados", {
+      const response = await fetch("http://localhost:8000/api/v1/meta/dados", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -94,6 +123,16 @@ const MetaDados = () => {
 
       if (response.ok) {
         const result = await response.json();
+
+        if (result.erro) {
+          toast({
+            variant: "destructive",
+            title: "Erro ao carregar dados",
+            description: result.erro,
+          });
+          return;
+        }
+
         setDados(result.dados || []);
       } else {
         console.error("Erro ao carregar dados:", response.statusText);
@@ -258,6 +297,24 @@ const MetaDados = () => {
                 </div>
               </div>
 
+              {/* Dropdown de Contas Meta Ads */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                  Conta Meta Ads
+                </label>
+                <select
+                  className="w-full px-3 py-2 border rounded-md text-sm"
+                  value={contaSelecionada}
+                  onChange={(e) => setContaSelecionada(e.target.value)}
+                >
+                  {contas.map((conta) => (
+                    <option key={conta.id} value={conta.account_id}>
+                      {conta.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Botão Recarregar */}
               <div className="flex items-end">
                 <Button 
@@ -363,6 +420,12 @@ const MetaDados = () => {
                   )}
                 </TableBody>
               </Table>
+
+              {filteredData.length > 0 && (
+                 <div className="px-4 py-2 text-sm text-muted-foreground flex justify-end">
+                    Mostrando {startIndex + 1}–{Math.min(endIndex, filteredData.length)} de {filteredData.length} campanhas
+                 </div>
+              )}
             </div>
           </CardContent>
         </Card>
