@@ -78,13 +78,13 @@ def interpretar_pedido_usuario(df: pd.DataFrame, pedido: str) -> dict:
 
     {markdown}
 
-    Com base na tabela e no pedido do usuário: "{pedido}", identifique:
+    Com base na tabela e no pedido do usuário: \"{pedido}\", identifique:
     - tipo de gráfico (bar, line ou pie)
     - coluna a ser usada no eixo X
     - coluna a ser usada no eixo Y (se aplicável)
     - título do gráfico
 
-    Responda apenas com um JSON como este:
+    Responda apenas com um JSON como este (sem explicações, sem comentários, sem texto antes ou depois, apenas o JSON puro):
 
     {{
     "type": "bar",
@@ -92,6 +92,8 @@ def interpretar_pedido_usuario(df: pd.DataFrame, pedido: str) -> dict:
     "yKey": "Vendas",
     "title": "Vendas por Dia"
     }}
+
+    Qualquer texto extra será ignorado.
     """
 
     body = {
@@ -106,6 +108,9 @@ def interpretar_pedido_usuario(df: pd.DataFrame, pedido: str) -> dict:
 
     content = response.json()["choices"][0]["message"]["content"]
 
+    print("DEBUG - Resposta bruta da IA:")
+    print(content)
+
     # Limpa código caso venha com ```json ou ```
     if content.startswith("```"):
         content = re.sub(r"^```(json)?", "", content).strip().rstrip("`")
@@ -118,7 +123,20 @@ def interpretar_pedido_usuario(df: pd.DataFrame, pedido: str) -> dict:
     match = re.search(r"\{.*\}", content, re.DOTALL)
     if match:
         json_text = match.group(0)
-        return json.loads(json_text)
+        import ast
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError:
+            # Tenta corrigir escapes inválidos
+            json_text_fixed = json_text.replace("\'", '"')
+            json_text_fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_text_fixed)  # duplica barras inválidas
+            try:
+                return json.loads(json_text_fixed)
+            except Exception:
+                try:
+                    return ast.literal_eval(json_text)
+                except Exception:
+                    raise ValueError(f"Não foi possível extrair JSON válido da resposta da IA. JSON bruto: {json_text}")
 
     raise ValueError("Não foi possível extrair JSON válido da resposta da IA.")
 
@@ -129,50 +147,80 @@ def montar_json_final(df: pd.DataFrame, params: dict) -> dict:
     y = params.get("yKey")
     titulo = params.get("title", "Gráfico Gerado")
 
+    # Normaliza nomes de colunas removendo barras invertidas
+    if x:
+        x = x.replace("\\", "")
+    if y:
+        y = y.replace("\\", "")
+
+    # Tenta casar xKey e yKey com as colunas reais do DataFrame
+    def match_col(col_name):
+        if col_name in df.columns:
+            return col_name
+        # Procura por similaridade ignorando case e underscores
+        col_name_norm = col_name.lower().replace("_", "")
+        for c in df.columns:
+            if c.lower().replace("_", "") == col_name_norm:
+                return c
+        return None
+
+    x_real = match_col(x) if x else None
+    y_real = match_col(y) if y else None
+
     if tipo not in {"bar", "line", "pie"}:
         raise ValueError("Tipo de gráfico inválido.")
 
     if tipo == "pie":
-        if not x or not y:
-            raise ValueError("Pie chart requer xKey e yKey")
-        data = df[[x, y]].dropna().head(20)
+        if not x_real or not y_real:
+            raise ValueError(f"Pie chart requer xKey e yKey válidos. Colunas disponíveis: {list(df.columns)}")
+        data = df[[x_real, y_real]].dropna().head(20)
         result = [
             {
-                x: str(row[x]),
-                y: float(str(row[y]).replace('.', '').replace(',', '.'))
+                x_real: str(row[x_real]),
+                y_real: float(str(row[y_real]).replace('.', '').replace(',', '.'))
             }
             for _, row in data.iterrows()
         ]
-        return {
+        json_final = {
             "type": "pie",
             "title": titulo,
             "data": result,
             "config": {
-                "dataKey": y
+                "dataKey": y_real,
+                "xKey": x_real,
+                "yKey": y_real
             }
         }
+        print("DEBUG - JSON FINAL DO GRÁFICO (pie):", json_final)
+        if not result:
+            raise ValueError(f"Nenhum dado encontrado para as colunas '{x_real}' e '{y_real}'. Colunas disponíveis: {list(df.columns)}")
+        return json_final
 
     # bar ou line
-    if not x or not y:
-        raise ValueError("Gráficos de linha ou barra requerem xKey e yKey")
+    if not x_real or not y_real:
+        raise ValueError(f"Gráficos de linha ou barra requerem xKey e yKey válidos. Colunas disponíveis: {list(df.columns)}")
 
-    data = df[[x, y]].dropna().head(50)
+    data = df[[x_real, y_real]].dropna().head(50)
     result = [
         {
-            x: str(row[x]),
-            y: float(str(row[y]).replace('.', '').replace(',', '.'))
+            x_real: str(row[x_real]),
+            y_real: float(str(row[y_real]).replace('.', '').replace(',', '.'))
         }
         for _, row in data.iterrows()
     ]
-    return {
+    json_final = {
         "type": tipo,
         "title": titulo,
         "data": result,
         "config": {
-            "xKey": x,
-            "yKey": y
+            "xKey": x_real,
+            "yKey": y_real
         }
     }
+    print("DEBUG - JSON FINAL DO GRÁFICO (bar/line):", json_final)
+    if not result:
+        raise ValueError(f"Nenhum dado encontrado para as colunas '{x_real}' e '{y_real}'. Colunas disponíveis: {list(df.columns)}")
+    return json_final
 
 
 def gerar_configuracao_grafico(df: pd.DataFrame, pedido_usuario: str) -> dict:

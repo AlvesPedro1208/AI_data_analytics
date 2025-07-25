@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Product from "./pages/Product";
 import Integrations from "./pages/Integrations";
 import MetaDados from "./pages/MetaDados";
+import OAuthCallback from "./pages/OAuthCallback";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/product" element={<Product />} />
           <Route path="/product/integrations" element={<Integrations />} />
           <Route path="/product/meta/dados" element={<MetaDados />} />
+          <Route path="/oauth/callback" element={<OAuthCallback />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

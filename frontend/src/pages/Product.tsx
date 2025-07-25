@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -49,12 +49,14 @@ import {
 } from 'lucide-react';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useNavigate } from 'react-router-dom';
+import { setIaContexto } from '@/services/integrations';
+import { getAllFacebookUsers, getUserAdAccountsFromBackend } from '@/services/oauth';
 
 interface DynamicChart {
   id: string;
   type: 'bar' | 'line' | 'pie';
   title: string;
-  data: any[];
+  data: unknown[];
   config?: {
     xKey?: string;
     yKey?: string;
@@ -77,11 +79,55 @@ const Product = () => {
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedIntegration, setSelectedIntegration] = useState('');
+  const [selectedFacebookUser, setSelectedFacebookUser] = useState('');
+  const [selectedAdAccount, setSelectedAdAccount] = useState('');
   const [lastUploadedSheet, setLastUploadedSheet] = useState<{ url?: string; file?: File | null }>({});
 
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const [dynamicCharts, setDynamicCharts] = useState<DynamicChart[]>([]);
+  const [facebookUsers, setFacebookUsers] = useState<Array<{ id: string; name: string }>>([]);
+  const [adAccounts, setAdAccounts] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    // Buscar usuários reais do backend
+    getAllFacebookUsers().then(users => {
+      setFacebookUsers(users.map(u => ({ id: u.facebook_id, name: u.username })));
+    }).catch(() => {
+      setFacebookUsers([]);
+    });
+  }, []);
+
+  // Buscar contas de Ads reais ao selecionar usuário
+  useEffect(() => {
+    if (selectedFacebookUser) {
+      setSelectedAdAccount('');
+      getUserAdAccountsFromBackend(selectedFacebookUser).then(accounts => {
+        setAdAccounts(accounts.map((a: { identificador_conta?: string; account_id?: string; id?: string; nome_conta?: string; name?: string }) => ({ id: a.identificador_conta || a.account_id || a.id || '', name: a.nome_conta || a.name || '' })));
+      }).catch(() => {
+        setAdAccounts([]);
+      });
+    } else {
+      setAdAccounts([]);
+      setSelectedAdAccount('');
+    }
+  }, [selectedFacebookUser]);
+
+  const adAccountsByUser = {
+    'user1': [
+      { id: 'act_123456789', name: 'Loja Virtual - Vendas Online' },
+      { id: 'act_123456790', name: 'Campanha Black Friday' }
+    ],
+    'user2': [
+      { id: 'act_987654321', name: 'Marketing Digital - Leads' },
+      { id: 'act_987654322', name: 'Branding - Awareness' }
+    ],
+    'user3': [
+      { id: 'act_555444333', name: 'Agência - Cliente A' },
+      { id: 'act_555444334', name: 'Agência - Cliente B' },
+      { id: 'act_555444335', name: 'Agência - Cliente C' }
+    ]
+  };
 
   const salesData = [
     { month: 'Jan', sales: 89500, visitors: 24700 },
@@ -107,17 +153,24 @@ const Product = () => {
     { day: 13, visitors: 120 }, { day: 14, visitors: 200 }, { day: 15, visitors: 180 }
   ];
 
-  const isChartRequest = (pergunta: string): boolean => {
-    const chartKeywords = [
-      'gráfico', 'grafico', 'chart', 'visualização', 'visualizacao',
-      'plot', 'dashboard', 'barra', 'linha', 'pizza', 'pie',
-      'bar', 'line', 'mostrar', 'plotar', 'criar gráfico'
-    ];
-    
-    return chartKeywords.some(keyword => 
-      pergunta.toLowerCase().includes(keyword.toLowerCase())
+  // Função para detectar pedidos de gráfico de forma extremamente permissiva
+  function isChartRequest(message: string): boolean {
+    if (!message) return false;
+    const lower = message.toLowerCase();
+    return (
+      lower.includes('gráfico') ||
+      lower.includes('grafico') ||
+      lower.includes('chart') ||
+      lower.includes('visualização') ||
+      lower.includes('visualizacao') ||
+      lower.includes('plot') ||
+      lower.includes('barra') ||
+      lower.includes('linha') ||
+      lower.includes('pizza') ||
+      lower.includes('pie') ||
+      lower.includes('plotar')
     );
-  };
+  }
 
   const removeChart = (chartId: string) => {
     setDynamicCharts(prev => prev.filter(chart => chart.id !== chartId));
@@ -131,17 +184,16 @@ const Product = () => {
     setMessage('');
     setIsAiLoading(true);
 
+    // Log para debug
+    console.log('DEBUG isChartRequest:', isChartRequest(currentMessage), '| currentMessage:', currentMessage);
+
     try {
-      if (isChartRequest(currentMessage) && (lastUploadedSheet.url || lastUploadedSheet.file)) {
-        await Promise.all([
-          handleChartRequest(currentMessage),
-          handleRegularRequest(currentMessage)
-        ]);
+      if (isChartRequest(currentMessage)) {
+        await handleChartRequest(currentMessage);
       } else {
         await handleRegularRequest(currentMessage);
       }
     } catch (error) {
-      console.error('Erro geral:', error);
       setChatMessages(prev => [...prev, { type: 'ai', content: 'Erro ao se comunicar com o servidor.' }]);
     } finally {
       setIsAiLoading(false);
@@ -149,10 +201,15 @@ const Product = () => {
   };
 
   const handleChartRequest = async (pergunta: string) => {
+    if (!selectedFacebookUser) {
+      setChatMessages(prev => [...prev, { type: 'ai', content: 'Selecione um usuário antes de pedir o gráfico.' }]);
+      return;
+    }
     try {
       const body = {
         pedido: pergunta,
-        google_sheets_url: lastUploadedSheet.url || undefined
+        google_sheets_url: lastUploadedSheet.url || undefined,
+        facebook_id: selectedFacebookUser
       };
 
       const response = await fetch('http://127.0.0.1:8000/gerar-grafico', {
@@ -163,31 +220,53 @@ const Product = () => {
         body: JSON.stringify(body)
       });
 
-      const chartConfig = await response.json();
+      const apiResult = await response.json();
+      let chartConfig: any = null;
+      // Se vier direto do backend já como objeto de gráfico
+      if (apiResult && apiResult.type && apiResult.data) {
+        chartConfig = apiResult;
+      } else if (apiResult && typeof apiResult.resposta === 'object' && apiResult.resposta.type && apiResult.resposta.data) {
+        chartConfig = apiResult.resposta;
+      } else if (apiResult && typeof apiResult.resposta === 'string') {
+        const resposta = apiResult.resposta.trim();
+        if (resposta.startsWith('[CHART:')) {
+          const match = resposta.match(/\[CHART:\s*(\{[\s\S]*\})\s*\]/);
+          if (match && match[1]) {
+            let jsonStr = match[1];
+            jsonStr = jsonStr.replace(/'/g, '"').replace(/\n/g, '').replace(/\r/g, '');
+            try {
+              chartConfig = JSON.parse(jsonStr);
+            } catch (e) {
+              setChatMessages(prev => [...prev, {
+                type: 'ai',
+                content: 'Erro ao interpretar o gráfico: ' + (e instanceof Error ? e.message : String(e)) + '<br/><pre>' + jsonStr + '</pre>'
+              }]);
+              return;
+            }
+          }
+        }
+      }
 
-      if (chartConfig && chartConfig.type) {
+      if (chartConfig && chartConfig.type && chartConfig.data) {
         const newChart: DynamicChart = {
           id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           type: chartConfig.type,
           title: chartConfig.title || 'Gráfico Gerado',
-          data: chartConfig.data || [],
+          data: chartConfig.data,
           config: chartConfig.config
         };
-
         setDynamicCharts(prev => [...prev, newChart]);
         setChatMessages(prev => [...prev, {
           type: 'ai',
           content: `📊 Gráfico "${newChart.title}" foi adicionado à dashboard!`
         }]);
       } else {
-        console.error('Erro na configuração do gráfico:', chartConfig);
         setChatMessages(prev => [...prev, {
           type: 'ai',
           content: 'Não foi possível gerar o gráfico solicitado. Tente reformular sua pergunta.'
         }]);
       }
     } catch (error) {
-      console.error('Erro ao gerar gráfico:', error);
       setChatMessages(prev => [...prev, {
         type: 'ai',
         content: 'Ocorreu um erro ao gerar o gráfico.'
@@ -197,8 +276,11 @@ const Product = () => {
 
   const handleRegularRequest = async (pergunta: string) => {
     try {
-      let formData = new FormData();
+      const formData = new FormData();
       formData.append('pergunta', pergunta);
+      if (selectedFacebookUser) {
+        formData.append('facebook_id', selectedFacebookUser);
+      }
 
       if (lastUploadedSheet.url) {
         formData.append('google_sheets_url', lastUploadedSheet.url);
@@ -206,6 +288,16 @@ const Product = () => {
         formData.append('file', lastUploadedSheet.file);
       }
 
+      // Só use /perguntar para perguntas normais, nunca para gráficos
+      // const response = await fetch('http://127.0.0.1:8000/perguntar', {
+      //   method: 'POST',
+      //   body: formData
+      // });
+      // Se chegar aqui para pedido de gráfico, lance erro
+      if (isChartRequest(pergunta)) {
+        setChatMessages(prev => [...prev, { type: 'ai', content: 'ERRO: handleRegularRequest não deve ser chamado para pedidos de gráfico!' }]);
+        return;
+      }
       const response = await fetch('http://127.0.0.1:8000/perguntar', {
         method: 'POST',
         body: formData
@@ -213,18 +305,42 @@ const Product = () => {
 
       const data = await response.json();
 
-      if (data.resposta) {
-        setChatMessages(prev => [...prev, { type: 'ai', content: data.resposta }]);
-      } else {
-        setChatMessages(prev => [...prev, { type: 'ai', content: 'Ocorreu um erro ao obter a resposta.' }]);
+      let chartAdded = false;
+      // Tenta detectar e renderizar gráfico se a resposta for um JSON de gráfico
+      if (typeof data.resposta === 'string') {
+        try {
+          const maybeChart = JSON.parse(data.resposta);
+          if (maybeChart && maybeChart.type && maybeChart.data) {
+            const newChart: DynamicChart = {
+              id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              type: maybeChart.type,
+              title: maybeChart.title || 'Gráfico Gerado',
+              data: maybeChart.data || [],
+              config: maybeChart.config
+            };
+            setDynamicCharts(prev => [...prev, newChart]);
+            setChatMessages(prev => [...prev, { type: 'ai', content: `📊 Gráfico "${newChart.title}" foi adicionado à dashboard!` }]);
+            chartAdded = true;
+          }
+        } catch (e) {
+          // Não é JSON de gráfico, segue fluxo normal
+        }
+      }
+
+      if (!chartAdded) {
+        if (data.resposta) {
+          setChatMessages(prev => [...prev, { type: 'ai', content: data.resposta }]);
+        } else {
+          setChatMessages(prev => [...prev, { type: 'ai', content: 'Ocorreu um erro ao obter a resposta.' }]);
+        }
       }
     } catch (error) {
       console.error('Erro na pergunta regular:', error);
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileUpload = (event: unknown) => {
+    const file = (event as React.ChangeEvent<HTMLInputElement>).target.files?.[0];
     if (file) {
       setSelectedFile(file);
     }
@@ -234,7 +350,7 @@ const Product = () => {
     setIsUploadDialogOpen(false);
     setChatMessages(prev => [...prev, {
       type: 'ai',
-      content: 'Processando a planilha, um momento...'
+      content: 'Processando dados, um momento...'
     }]);
 
     try {
@@ -244,6 +360,26 @@ const Product = () => {
         formData.append('file', selectedFile);
       } else if (uploadType === 'url' && spreadsheetUrl) {
         formData.append('google_sheets_url', spreadsheetUrl);
+      } else if (uploadType === 'api' && selectedIntegration && selectedFacebookUser && selectedAdAccount) {
+        // Busca dados reais de Ads e envia para contexto da IA
+        const request = {
+          user_facebook_id: selectedFacebookUser,
+          account_id: selectedAdAccount,
+          fields: 'campaign_name,adset_name,ad_name,impressions,reach,clicks,cpc,spend,ad_id,ctr,cpm,frequency,actions,objective,status,date_start,date_stop,nivel'
+        };
+        const response = await fetch('http://localhost:8000/api/v1/meta/dados', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        });
+        const result = await response.json();
+        if (result?.dados && result.dados.length > 0) {
+          await setIaContexto(selectedFacebookUser, result.dados);
+          setChatMessages(prev => [...prev, { type: 'ai', content: 'Dados da integração enviados para a IA! Agora você pode pedir insights, gráficos e análises.' }]);
+        } else {
+          setChatMessages(prev => [...prev, { type: 'ai', content: 'Não foi possível extrair dados da integração selecionada.' }]);
+        }
+        return;
       } else {
         return;
       }
@@ -307,36 +443,50 @@ const Product = () => {
 
   const renderDynamicChart = (chart: DynamicChart) => {
     const colors = chart.config?.colors || ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
-    
+    if (!chart.data || !Array.isArray(chart.data) || chart.data.length === 0) {
+      return <div className="text-red-500">Sem dados para exibir o gráfico.</div>;
+    }
+    // Normaliza nomes de colunas para evitar erros de case/underscore
+    const getKey = (obj: any, key: string | undefined, fallback: string) => {
+      if (!key) return fallback;
+      if (obj.hasOwnProperty(key)) return key;
+      const lowerKey = key.toLowerCase().replace(/_/g, '');
+      const found = Object.keys(obj).find(k => k.toLowerCase().replace(/_/g, '') === lowerKey);
+      return found || fallback;
+    };
     switch (chart.type) {
-      case 'bar':
+      case 'bar': {
+        const xKey = getKey(chart.data[0], chart.config?.xKey, 'name');
+        const yKey = getKey(chart.data[0], chart.config?.yKey, 'value');
         return (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.config?.xKey || 'name'} />
+              <XAxis dataKey={xKey} />
               <YAxis />
               <Tooltip />
               <Bar 
-                dataKey={chart.config?.yKey || 'value'} 
+                dataKey={yKey} 
                 fill={colors[0]} 
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>
           </ResponsiveContainer>
         );
-      
-      case 'line':
+      }
+      case 'line': {
+        const xKey = getKey(chart.data[0], chart.config?.xKey, 'name');
+        const yKey = getKey(chart.data[0], chart.config?.yKey, 'value');
         return (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.config?.xKey || 'name'} />
+              <XAxis dataKey={xKey} />
               <YAxis />
               <Tooltip />
               <Line 
                 type="monotone" 
-                dataKey={chart.config?.yKey || 'value'} 
+                dataKey={yKey} 
                 stroke={colors[0]} 
                 strokeWidth={3}
                 dot={{ fill: colors[0], strokeWidth: 2, r: 4 }}
@@ -344,8 +494,10 @@ const Product = () => {
             </LineChart>
           </ResponsiveContainer>
         );
-      
-      case 'pie':
+      }
+      case 'pie': {
+        const dataKey = getKey(chart.data[0], chart.config?.dataKey, 'value');
+        const nameKey = getKey(chart.data[0], chart.config?.xKey, 'name');
         return (
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -354,7 +506,8 @@ const Product = () => {
                 cx="50%"
                 cy="50%"
                 outerRadius={80}
-                dataKey={chart.config?.dataKey || 'value'}
+                dataKey={dataKey}
+                nameKey={nameKey}
                 label={({ name, value }) => `${name}: ${value}`}
               >
                 {chart.data.map((entry, index) => (
@@ -365,7 +518,7 @@ const Product = () => {
             </PieChart>
           </ResponsiveContainer>
         );
-      
+      }
       default:
         return <div>Tipo de gráfico não suportado</div>;
     }
@@ -502,7 +655,15 @@ const Product = () => {
                   {uploadType === 'api' && (
                     <div className="space-y-2">
                       <label className="text-sm font-medium dark:text-gray-200">Selecionar Integração</label>
-                      <Select value={selectedIntegration} onValueChange={setSelectedIntegration}>
+                      <Select 
+                        value={selectedIntegration} 
+                        onValueChange={(value) => {
+                          setSelectedIntegration(value);
+                          // Reset subsequent selections when integration changes
+                          setSelectedFacebookUser('');
+                          setSelectedAdAccount('');
+                        }}
+                      >
                         <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                           <SelectValue placeholder="Escolha uma integração ativa" />
                         </SelectTrigger>
@@ -512,6 +673,55 @@ const Product = () => {
                           <SelectItem value="instagram-1">Instagram Business - Perfil Principal</SelectItem>
                         </SelectContent>
                       </Select>
+
+                      {/* Facebook User Selection - Only show when Facebook Ads is selected */}
+                      {selectedIntegration === 'facebook-ads-1' && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium dark:text-gray-200">Selecionar Usuário Logado</label>
+                          <Select 
+                            value={selectedFacebookUser} 
+                            onValueChange={(value) => {
+                              setSelectedFacebookUser(value);
+                              // Reset ad account selection when user changes
+                              setSelectedAdAccount('');
+                            }}
+                          >
+                            <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                              <SelectValue placeholder="Escolha o usuário logado" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {facebookUsers.map((user) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                  {user.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {/* Ad Account Selection - Only show when Facebook user is selected */}
+                      {selectedIntegration === 'facebook-ads-1' && selectedFacebookUser && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium dark:text-gray-200">Selecionar Conta de Ads</label>
+                          <Select 
+                            value={selectedAdAccount} 
+                            onValueChange={setSelectedAdAccount}
+                          >
+                            <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                              <SelectValue placeholder="Escolha a conta de ads" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {adAccounts.map((account) => (
+                                <SelectItem key={account.id} value={account.id}>
+                                  {account.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         Importe dados em tempo real das suas integrações configuradas
                       </p>
@@ -523,7 +733,8 @@ const Product = () => {
                     disabled={
                       (uploadType === 'file' && !selectedFile) || 
                       (uploadType === 'url' && !spreadsheetUrl) ||
-                      (uploadType === 'api' && !selectedIntegration)
+                      (uploadType === 'api' && !selectedIntegration) ||
+                      (uploadType === 'api' && selectedIntegration === 'facebook-ads-1' && (!selectedFacebookUser || !selectedAdAccount))
                     }
                     className="w-full"
                   >

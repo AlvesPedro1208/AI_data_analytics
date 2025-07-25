@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 
 const menuItems = [
   { title: "Dashboard", url: "/product", icon: BarChart3 },
-  { title: "Dados Meta Ads", url: "/product/meta/dados", icon: TrendingUp },
+  { title: "Dados Disponíveis", url: "/product/meta/dados", icon: TrendingUp },
   { title: "Integrações", url: "/product/integrations", icon: Plug },
   { title: "Configurações", url: "/product/settings", icon: Settings },
 ] as const;
