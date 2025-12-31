@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
-from backend.schemas.accounts_ads_facebook import AccountAdsFacebookCreate
-from backend.services import accounts_ads_facebook as accounts_service
+from schemas.accounts_ads_facebook import AccountAdsFacebookCreate
+from services import accounts_ads_facebook as accounts_service
 from datetime import datetime
 
 router = APIRouter()

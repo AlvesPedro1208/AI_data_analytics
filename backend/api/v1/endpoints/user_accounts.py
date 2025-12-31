@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from backend.schemas.user_accounts import UserAccountCreate, UserAccount
-from backend.services import user_accounts as user_accounts_service
+from schemas.user_accounts import UserAccountCreate, UserAccount
+from services import user_accounts as user_accounts_service
 from typing import List
 
 router = APIRouter()

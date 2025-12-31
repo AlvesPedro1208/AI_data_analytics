@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from backend.schemas.user_facebook import UserFacebookCreate, UserFacebook
-from backend.services import user_facebook as user_service
+from schemas.user_facebook import UserFacebookCreate, UserFacebook
+from services import user_facebook as user_service
 from typing import List
 
 router = APIRouter()

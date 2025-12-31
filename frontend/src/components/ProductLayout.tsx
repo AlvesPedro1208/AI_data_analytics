@@ -4,6 +4,7 @@ import { SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sid
 import { AppSidebar } from '@/components/AppSidebar';
 import { ArrowLeft, Moon, Sun, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme } from "@/components/theme-provider";
 
 interface ProductLayoutProps {
   children: ReactNode;
@@ -13,17 +14,19 @@ interface ProductLayoutProps {
 
 function ProductHeader({ title, showBackButton = true }: { title?: string; showBackButton?: boolean }) {
   const navigate = useNavigate();
-  const [isDark, setIsDark] = useState(false);
+  const { theme, setTheme } = useTheme();
   const { toggleSidebar } = useSidebar();
 
-  useEffect(() => {
-    const isDarkMode = document.documentElement.classList.contains('dark');
-    setIsDark(isDarkMode);
-  }, []);
-
   const toggleDarkMode = () => {
-    document.documentElement.classList.toggle('dark');
-    setIsDark(!isDark);
+    if (theme === 'dark') {
+      setTheme('light');
+    } else if (theme === 'light') {
+      setTheme('dark');
+    } else {
+      // system
+      const systemIsDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setTheme(systemIsDark ? 'light' : 'dark');
+    }
   };
 
   const handleBackClick = () => {
@@ -31,14 +34,14 @@ function ProductHeader({ title, showBackButton = true }: { title?: string; showB
   };
 
   return (
-    <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 sticky top-0 z-40">
+    <header className="h-16 bg-background border-b border-border flex items-center justify-between px-6 sticky top-0 z-40">
       <div className="flex items-center gap-4">
-        <SidebarTrigger className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
+        <SidebarTrigger className="p-2 hover:bg-accent hover:text-accent-foreground rounded-md transition-colors">
           <Menu className="h-5 w-5" />
         </SidebarTrigger>
         
         {title && (
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <h1 className="text-xl font-semibold text-foreground">
             {title}
           </h1>
         )}
@@ -70,13 +73,13 @@ function ProductHeader({ title, showBackButton = true }: { title?: string; showB
 export function ProductLayout({ children, title, showBackButton = true }: ProductLayoutProps) {
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
         
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <ProductHeader title={title} showBackButton={showBackButton} />
           
-          <main className="flex-1 p-6 bg-gray-50 dark:bg-gray-900">
+          <main className="flex-1 p-6 bg-muted/20 overflow-x-hidden overflow-y-auto">
             {children}
           </main>
         </div>

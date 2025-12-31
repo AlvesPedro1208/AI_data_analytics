@@ -1,5 +1,5 @@
-from backend.database.connection import get_db_connection
-from backend.schemas.user_accounts import UserAccountCreate
+from database.connection import get_db_connection
+from schemas.user_accounts import UserAccountCreate
 from psycopg2.extras import RealDictCursor
 
 def associar_usuario_conta(user_account: UserAccountCreate):

@@ -4,10 +4,19 @@ import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarIcon, Download, Filter, Search, Loader2 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { CalendarIcon, Download, Filter, Search, Loader2, RefreshCcw } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
@@ -36,29 +45,54 @@ const MetaDados = () => {
   const [usuarioSelecionado, setUsuarioSelecionado] = useState<string>("");
   const [contas, setContas] = useState<ContaAPI[]>([]);
   const [contaSelecionada, setContaSelecionada] = useState<string>("");
-  const camposObrigatorios = [
-    "campaign_name", "adset_name", "ad_name", "impressions", "reach", "clicks", "cpc", "spend", "ad_id"
-  ];
-  const [camposSelecionados, setCamposSelecionados] = useState<string[]>(camposObrigatorios);
-
+  const [todasContas, setTodasContas] = useState<ContaAPI[]>([]);
+  const [plataformaSelecionada, setPlataformaSelecionada] = useState<string>("Meta Ads");
+  const [plataformasDisponiveis, setPlataformasDisponiveis] = useState<string[]>([]);
   const opcoesCampos = [
+    { value: "account_id", label: "ID da Conta" },
+    { value: "account_name", label: "Nome da Conta" },
     { value: "campaign_name", label: "Nome da Campanha" },
-    { value: "adset_name", label: "Conjunto" },
-    { value: "ad_name", label: "Anúncio" },
+    { value: "campaign_id", label: "ID da Campanha" },
+    { value: "adset_name", label: "Nome do Conjunto" },
+    { value: "adset_id", label: "ID do Conjunto" },
+    { value: "ad_name", label: "Nome do Anúncio" },
+    { value: "ad_id", label: "ID do Anúncio" },
     { value: "impressions", label: "Impressões" },
+    { value: "spend", label: "Valor Gasto" },
     { value: "reach", label: "Alcance" },
-    { value: "clicks", label: "Cliques" },
-    { value: "cpc", label: "CPC" },
-    { value: "spend", label: "Gasto" },
-    { value: "ctr", label: "CTR" },
-    { value: "cpm", label: "CPM" },
+    { value: "clicks", label: "Cliques (Todos)" },
+    { value: "unique_clicks", label: "Cliques Únicos" },
+    { value: "cpc", label: "CPC (Custo por Clique)" },
+    { value: "cpm", label: "CPM (Custo por 1000 Impressões)" },
+    { value: "ctr", label: "CTR (Taxa de Cliques)" },
     { value: "frequency", label: "Frequência" },
-    { value: "actions", label: "Ações" },
     { value: "objective", label: "Objetivo" },
-    { value: "configured_status", label: "Status Configurado" },
-    { value: "effective_status", label: "Status Efetivo" },
-    { value: "ad_id", label: "ID do Anúncio" }
+    { value: "buying_type", label: "Tipo de Compra" },
+    { value: "optimization_goal", label: "Meta de Otimização" },
+    { value: "actions", label: "Ações (Conversões/Eventos)" },
+    { value: "action_values", label: "Valores das Ações" },
+    { value: "cost_per_action_type", label: "Custo por Tipo de Ação" },
+    { value: "website_ctr", label: "CTR no Site" },
+    { value: "inline_link_clicks", label: "Cliques no Link (Inline)" },
+    { value: "cost_per_inline_link_click", label: "Custo por Clique no Link" },
+    { value: "date_start", label: "Data Início" },
+    { value: "date_stop", label: "Data Fim" },
+    { value: "age", label: "Idade" },
+    { value: "gender", label: "Gênero" },
+    { value: "country", label: "País" },
+    { value: "region", label: "Região" },
+    { value: "dma", label: "DMA" },
+    { value: "impression_device", label: "Dispositivo de Impressão" },
+    { value: "publisher_platform", label: "Plataforma (FB/IG/etc)" },
+    { value: "platform_position", label: "Posicionamento" },
+    { value: "device_platform", label: "Plataforma do Dispositivo" }
   ];
+
+  // Campos padrão que serão selecionados automaticamente
+  const camposPadrao = opcoesCampos.map(c => c.value);
+
+  const [camposSelecionados, setCamposSelecionados] = useState<string[]>(camposPadrao);
+  const camposObrigatorios = ["campaign_name", "adset_name", "ad_name", "impressions", "spend", "date_start", "date_stop"];
   const { toast } = useToast();
 
   const itemsPerPage = 10;
@@ -72,21 +106,36 @@ const MetaDados = () => {
 
         // Buscar contas do banco usando o serviço existente
         const contasData = await getContas();
+        setTodasContas(contasData);
+
+        // Extrair plataformas únicas
+        const plataformas = Array.from(new Set(contasData.map(c => c.plataforma))).sort();
+        setPlataformasDisponiveis(plataformas);
         
-        // Filtrar apenas contas Meta/Facebook Ads ativas
-        const contasMeta = contasData.filter(c => 
-          ["Meta Ads", "Facebook Ads"].includes(c.plataforma) && c.ativo
+        // Se a plataforma atual não estiver na lista (e houver plataformas), selecione a primeira
+        // Mas tente manter "Meta Ads" ou "Facebook Ads" como padrão se existirem
+        let plataformaInicial = "Meta Ads";
+        if (!plataformas.includes("Meta Ads") && !plataformas.includes("Facebook Ads")) {
+             if (plataformas.length > 0) plataformaInicial = plataformas[0];
+        } else if (plataformas.includes("Facebook Ads") && !plataformas.includes("Meta Ads")) {
+             plataformaInicial = "Facebook Ads";
+        }
+        setPlataformaSelecionada(plataformaInicial);
+
+        // Filtrar contas da plataforma inicial
+        const contasFiltradas = contasData.filter(c => 
+          c.plataforma === plataformaInicial && c.ativo
         );
 
         setUsuarios(usuariosData);
-        setContas(contasMeta);
+        setContas(contasFiltradas);
 
         // Seleciona automaticamente o primeiro usuário e conta
         if (usuariosData.length > 0) {
           setUsuarioSelecionado(usuariosData[0].facebook_id || "");
         }
-        if (contasMeta.length > 0) {
-          setContaSelecionada(contasMeta[0].identificador_conta);
+        if (contasFiltradas.length > 0) {
+          setContaSelecionada(contasFiltradas[0].identificador_conta);
         }
       } catch (error) {
         console.error("Erro ao carregar dados iniciais:", error);
@@ -100,6 +149,27 @@ const MetaDados = () => {
 
     carregarDadosIniciais();
   }, [toast]);
+
+  // Atualizar contas quando a plataforma mudar
+  useEffect(() => {
+    if (todasContas.length > 0) {
+      const contasFiltradas = todasContas.filter(c => 
+        c.plataforma === plataformaSelecionada && c.ativo
+      );
+      setContas(contasFiltradas);
+      
+      // Resetar seleção de conta se a lista mudar
+      if (contasFiltradas.length > 0) {
+         // Tenta manter a conta se ela existir na nova lista (pouco provável entre plataformas diferentes, mas bom para reloads)
+         const contaAindaExiste = contasFiltradas.some(c => c.identificador_conta === contaSelecionada);
+         if (!contaAindaExiste) {
+            setContaSelecionada(contasFiltradas[0].identificador_conta);
+         }
+      } else {
+         setContaSelecionada("");
+      }
+    }
+  }, [plataformaSelecionada, todasContas]);
 
   // Filtrar e ordenar dados
   useEffect(() => {
@@ -238,22 +308,44 @@ const MetaDados = () => {
     );
   };
 
-  const colunasFixas = [
-    { value: "campaign_name", label: "Nome da Campanha" },
-    { value: "adset_name", label: "Conjunto" },
-    { value: "ad_name", label: "Anúncio" },
-    { value: "status", label: "Status" },
-    { value: "impressions", label: "Impressões" },
-    { value: "reach", label: "Alcance" },
-    { value: "clicks", label: "Cliques" },
-    { value: "cpc", label: "CPC" },
-    { value: "spend", label: "Gasto" },
-    { value: "date_start", label: "Data Início" },
-    { value: "date_stop", label: "Data Fim" }
-  ];
-  const colunasExtras = camposSelecionados.filter(
-    campo => !colunasFixas.some(fixa => fixa.value === campo)
-  );
+  const [columns, setColumns] = useState<string[]>([]);
+
+  // Atualizar colunas dinamicamente quando os dados mudarem
+  useEffect(() => {
+    if (dados.length > 0) {
+      // Extrair todas as chaves únicas dos dados retornados
+      const allKeys = Array.from(new Set(dados.flatMap(item => Object.keys(item))));
+      
+      // Definir uma ordem de prioridade para colunas comuns, se existirem
+      const priorityFields = ['campaign_name', 'adset_name', 'ad_name', 'account_name', 'campaign_id', 'adset_id', 'ad_id'];
+      
+      const sortedKeys = allKeys.sort((a, b) => {
+        const indexA = priorityFields.indexOf(a);
+        const indexB = priorityFields.indexOf(b);
+        
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        
+        return a.localeCompare(b);
+      });
+
+      setColumns(sortedKeys);
+    }
+  }, [dados]);
+
+  // Helper para formatar o cabeçalho da coluna
+  const formatHeader = (key: string) => {
+    // Tenta encontrar um label pré-definido
+    const option = opcoesCampos.find(opt => opt.value === key);
+    if (option) return option.label;
+    
+    // Fallback: formata a chave (ex: "campaign_name" -> "Campaign Name")
+    return key
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
 
   // Função para exportar CSV
   const exportarCSV = () => {
@@ -265,22 +357,19 @@ const MetaDados = () => {
       });
       return;
     }
-    // Cabeçalhos
-    const headers = [
-      ...colunasFixas.map(col => col.label),
-      ...colunasExtras.map(campo => opcoesCampos.find(opt => opt.value === campo)?.label || campo),
-      'Nível'
-    ];
+    // Cabeçalhos baseados nas colunas dinâmicas
+    const headers = columns.map(formatHeader);
+    
     // Linhas
-    const rows = filteredData.map(item => [
-      ...colunasFixas.map(col => String(item[col.value] ?? '-')),
-      ...colunasExtras.map(campo => String(item[campo] ?? '-')),
-      String(item['nivel'] ?? '-')
-    ]);
+    const rows = filteredData.map(item => 
+      columns.map(col => String(item[col] ?? '-'))
+    );
+    
     // Monta CSV
     const csv = [headers, ...rows]
       .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
       .join('\n');
+      
     // Baixa arquivo com BOM UTF-8
     const BOM = '\uFEFF';
     const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
@@ -289,66 +378,99 @@ const MetaDados = () => {
 
   return (
     <ProductLayout title="Dados da Meta Ads">
-      <div className="space-y-6">
-        <div>
-          <p className="text-gray-600 dark:text-gray-400">
-            Visualize os dados brutos das suas campanhas importadas da Meta Ads.
-          </p>
+      <div className="h-full flex flex-col space-y-6 min-w-0">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Explorador de Dados</h2>
+            <p className="text-muted-foreground mt-1">
+              Configure filtros, extraia dados brutos da Meta Ads e exporte para análise.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUsuarioSelecionado("");
+                setContaSelecionada("");
+                setDataInicial(undefined);
+                setDataFinal(undefined);
+                setSearchTerm("");
+                setCamposSelecionados(camposPadrao);
+                setDados([]);
+              }}
+              className="hidden md:flex"
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Limpar Filtros
+            </Button>
+          </div>
         </div>
 
-        {/* Filtros */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5" />
-              Filtros
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Primeira linha: Usuário, Conta, Datas, Campos e Botão */}
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-              {/* Seleção de Usuário */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                  Usuário Logado
-                </label>
-                <select
-                    className="w-full px-3 py-2 border rounded-md text-sm bg-background"
-                  value={usuarioSelecionado}
-                  onChange={(e) => setUsuarioSelecionado(e.target.value)}
-                >
-                  {usuarios.map((usuario) => (
-                      <option key={usuario.facebook_id} value={usuario.facebook_id}>
-                        {usuario.username}
-                    </option>
-                  ))}
-                </select>
+        {/* Main Control Panel */}
+        <div className="bg-card border rounded-xl p-5 shadow-sm space-y-5">
+          {/* ... filters ... */}
+          {/* Row 1: Context & Time */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Account Context (5 cols) */}
+            <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-1 sm:col-span-2">
+                <Label>Conexão (Plataforma)</Label>
+                <Select value={plataformaSelecionada} onValueChange={setPlataformaSelecionada}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecione a plataforma..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plataformasDisponiveis.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {/* Dropdown de Contas Meta Ads */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                  Conta Meta Ads
-                </label>
-                <select
-                    className="w-full px-3 py-2 border rounded-md text-sm bg-background"
-                  value={contaSelecionada}
-                  onChange={(e) => setContaSelecionada(e.target.value)}
-                >
-                  {contas.map((conta) => (
-                    <option key={conta.id} value={conta.identificador_conta}>
-                      {conta.nome_conta}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-2">
+                <Label>Usuário</Label>
+                <Select value={usuarioSelecionado} onValueChange={setUsuarioSelecionado}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usuarios.map((u) => (
+                      <SelectItem key={u.facebook_id} value={u.facebook_id || "undefined"}>
+                        {u.username}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Conta de Anúncios</Label>
+                <Select value={contaSelecionada} onValueChange={setContaSelecionada}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {contas.map((c) => (
+                      <SelectItem key={c.id} value={c.identificador_conta}>
+                        {c.nome_conta}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-              {/* Data Inicial */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                  Data Inicial
-                </label>
+            {/* Separator for desktop */}
+            <div className="hidden lg:flex justify-center lg:col-span-1">
+               <Separator orientation="vertical" className="h-full" />
+            </div>
+
+            {/* Date Range (6 cols) */}
+            <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Início</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -359,7 +481,7 @@ const MetaDados = () => {
                       )}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dataInicial ? format(dataInicial, "dd/MM/yyyy") : "Selecionar data"}
+                      {dataInicial ? format(dataInicial, "dd/MM/yyyy") : "DD/MM/AAAA"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -373,12 +495,8 @@ const MetaDados = () => {
                   </PopoverContent>
                 </Popover>
               </div>
-
-              {/* Data Final */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                  Data Final
-                </label>
+              <div className="space-y-2">
+                <Label>Fim</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -389,7 +507,7 @@ const MetaDados = () => {
                       )}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dataFinal ? format(dataFinal, "dd/MM/yyyy") : "Selecionar data"}
+                      {dataFinal ? format(dataFinal, "dd/MM/yyyy") : "DD/MM/AAAA"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -403,231 +521,201 @@ const MetaDados = () => {
                   </PopoverContent>
                 </Popover>
               </div>
+            </div>
+          </div>
 
-                {/* Campos a puxar */}
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                    Campos a puxar
-                  </label>
+          <Separator />
+
+          {/* Row 2: Search, Fields & Actions */}
+          <div className="flex flex-col lg:flex-row gap-4 items-end justify-between">
+            <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
+               {/* Search */}
+               <div className="space-y-2 flex-1">
+                 <Label>Buscar</Label>
+                 <div className="relative">
+                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                   <Input
+                     placeholder="Campanha, conjunto ou anúncio..."
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                     className="pl-10"
+                   />
+                 </div>
+               </div>
+               
+               {/* Fields */}
+               <div className="space-y-2 w-full sm:w-auto min-w-[200px]">
+                 <Label>Colunas</Label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start text-left font-normal"
-                      >
-                        <Filter className="mr-2 h-4 w-4" />
-                        {camposSelecionados.length > 0 
-                          ? `${camposSelecionados.length} campo${camposSelecionados.length > 1 ? 's' : ''} selecionado${camposSelecionados.length > 1 ? 's' : ''}`
-                          : "Selecionar campos"
-                        }
+                      <Button variant="outline" className="w-full justify-between">
+                        <span className="flex items-center">
+                          <Filter className="mr-2 h-4 w-4" />
+                          {camposSelecionados.length} selecionadas
+                        </span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-80 p-0 z-50" align="start">
-                      <div className="bg-background border border-border rounded-lg shadow-lg">
-                        <div className="p-3 border-b">
-                          <h4 className="font-medium text-sm">Selecione os campos para extrair</h4>
+                    <PopoverContent className="w-80 p-0" align="start">
+                      <div className="p-4 space-y-4">
+                        <div className="space-y-2">
+                          <h4 className="font-medium leading-none">Configurar Colunas</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Selecione as métricas que deseja visualizar.
+                          </p>
                         </div>
-                        <div className="max-h-60 overflow-y-auto p-2">
-                          {opcoesCampos
-                            .sort((a, b) => {
-                              const aObrigatorio = camposObrigatorios.includes(a.value);
-                              const bObrigatorio = camposObrigatorios.includes(b.value);
-                              if (aObrigatorio && !bObrigatorio) return -1;
-                              if (!aObrigatorio && bObrigatorio) return 1;
-                              return a.label.localeCompare(b.label);
-                            })
-                            .map((campo) => (
-                            <label
-                              key={campo.value}
-                              className="flex items-center space-x-2 p-2 hover:bg-accent rounded cursor-pointer"
-                            >
-                              <Checkbox
-                                checked={camposSelecionados.includes(campo.value)}
-                                disabled={camposObrigatorios.includes(campo.value)}
-                                onCheckedChange={checked => {
-                                  if (camposObrigatorios.includes(campo.value)) {
-                                    if (!checked) {
-                                      toast({
-                                        variant: "destructive",
-                                        title: "Campo obrigatório",
-                                        description: `O campo '${campo.label}' é obrigatório e não pode ser desmarcado.`,
-                                      });
-                                    }
-                                    return;
-                                  }
-                                  if (checked) {
-                                    setCamposSelecionados([...camposSelecionados, campo.value]);
-                                  } else {
-                                    setCamposSelecionados(camposSelecionados.filter(c => c !== campo.value));
-                                  }
-                                }}
-                                id={`campo-${campo.value}`}
-                              />
-                              <span className="text-sm">{campo.label}{camposObrigatorios.includes(campo.value) && <span className="text-red-500 ml-1">*</span>}</span>
-                            </label>
+                        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-2">
+                          {opcoesCampos.map((campo) => (
+                             <div key={campo.value} className="flex items-center space-x-2">
+                               <Checkbox 
+                                 id={`field-${campo.value}`} 
+                                 checked={camposSelecionados.includes(campo.value)}
+                                 disabled={camposObrigatorios.includes(campo.value)}
+                                 onCheckedChange={(checked) => {
+                                    if (camposObrigatorios.includes(campo.value)) return;
+                                    if (checked) setCamposSelecionados([...camposSelecionados, campo.value]);
+                                    else setCamposSelecionados(camposSelecionados.filter(c => c !== campo.value));
+                                 }}
+                               />
+                               <label htmlFor={`field-${campo.value}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                 {campo.label}
+                               </label>
+                             </div>
                           ))}
-                        </div>
-                        <div className="p-3 border-t flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setCamposSelecionados(opcoesCampos.map(c => c.value))}
-                            className="flex-1"
-                          >
-                            Selecionar Todos
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setCamposSelecionados(camposObrigatorios)}
-                            className="flex-1"
-                          >
-                            Limpar Todos
-                          </Button>
                         </div>
                       </div>
                     </PopoverContent>
                   </Popover>
-                </div>
-
-                {/* Botão Obter Dados e Exportar CSV */}
-                <div className="flex items-end gap-2">
-                  <Button 
-                    onClick={obterDados} 
-                    disabled={loading}
-                    className="w-full"
-                  >
-                    {loading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="mr-2 h-4 w-4" />
-                    )}
-                    Obter Dados
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={exportarCSV}
-                    disabled={filteredData.length === 0}
-                  >
-                    Exportar CSV
-                  </Button>
-                </div>
-              </div>
-
-              {/* Segunda linha: Busca */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                  Buscar
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Nome da campanha, conjunto ou anúncio..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              </div>
+               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Tabela */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-800">
-              <Table className="min-w-full">
+            {/* Actions */}
+            <div className="flex gap-2 w-full lg:w-auto pt-4 lg:pt-0">
+               <Button 
+                 variant="secondary" 
+                 onClick={exportarCSV} 
+                 disabled={filteredData.length === 0}
+                 className="flex-1 lg:flex-none"
+               >
+                 <Download className="mr-2 h-4 w-4" />
+                 CSV
+               </Button>
+               <Button 
+                 onClick={obterDados} 
+                 disabled={loading}
+                 className="flex-1 lg:flex-none min-w-[140px]"
+               >
+                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                 Carregar Dados
+               </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Results Area */}
+        <div className="border rounded-xl bg-card shadow-sm flex flex-col min-w-0 max-w-full overflow-hidden">
+          <div className="p-4 border-b flex items-center justify-between bg-muted/30">
+             <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-background">
+                  {filteredData.length} registros
+                </Badge>
+                {filteredData.length > 0 && (
+                   <span className="text-sm text-muted-foreground hidden sm:inline-block">
+                     Mostrando {startIndex + 1}-{Math.min(endIndex, filteredData.length)}
+                   </span>
+                )}
+             </div>
+             {/* Pagination (Compact) */}
+             {totalPages > 1 && (
+               <div className="flex items-center gap-2">
+                 <Button
+                   variant="ghost"
+                   size="sm"
+                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                   disabled={currentPage === 1}
+                 >
+                   Anterior
+                 </Button>
+                 <span className="text-sm text-muted-foreground">
+                   {currentPage} / {totalPages}
+                 </span>
+                 <Button
+                   variant="ghost"
+                   size="sm"
+                   onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                   disabled={currentPage === totalPages}
+                 >
+                   Próxima
+                 </Button>
+               </div>
+             )}
+          </div>
+
+          <div className="w-full overflow-hidden">
+            <div className="w-full overflow-x-auto">
+              <Table className="w-full">
                 <TableHeader>
-                  <TableRow>
-                    {colunasFixas.map(col => (
-                      <TableHead key={col.value}>{col.label}</TableHead>
-                    ))}
-                    {colunasExtras.map(campo => (
-                      <TableHead key={campo}>{opcoesCampos.find(opt => opt.value === campo)?.label || campo}</TableHead>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    {columns.map(col => (
+                      <TableHead key={col} className="whitespace-nowrap font-semibold">
+                        <Button variant="ghost" size="sm" className="-ml-3 h-8 data-[active=true]:text-primary" 
+                          onClick={() => handleSort(col)}
+                          data-active={sortField === col}
+                        >
+                          {formatHeader(col)}
+                          {sortField === col && (
+                             <span className="ml-1 text-xs">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                          )}
+                        </Button>
+                      </TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {currentData.length > 0 ? (
                     currentData.map((item, idx) => (
-                      <TableRow key={idx}>
-                        {colunasFixas.map(col => (
-                          <TableCell key={col.value}>
-                            {col.value === "status"
-                              ? getStatusBadge(String(item.status ?? ""))
-                              : typeof item[col.value] === "number"
-                                ? (item[col.value] as number).toLocaleString()
-                                : String(item[col.value] ?? "-")}
-                          </TableCell>
-                        ))}
-                        {colunasExtras.map(campo => (
-                          <TableCell key={campo}>
-                            {typeof item[campo] === "number"
-                              ? (item[campo] as number).toLocaleString()
-                              : String(item[campo] ?? "-")}
+                      <TableRow key={idx} className="hover:bg-muted/30 transition-colors">
+                        {columns.map(col => (
+                          <TableCell key={col} className="py-3 whitespace-nowrap">
+                            {['status', 'effective_status', 'configured_status'].includes(col) ? (
+                              getStatusBadge(String(item[col] ?? ""))
+                            ) : (
+                              <span className="text-sm">
+                                {typeof item[col] === "number"
+                                  ? (item[col] as number).toLocaleString()
+                                  : String(item[col] ?? "-")}
+                              </span>
+                            )}
                           </TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={colunasFixas.length + colunasExtras.length} className="text-center py-8 text-gray-500">
-                        Nenhum dado encontrado. Clique em "Obter Dados" para importar.
+                      <TableCell colSpan={Math.max(columns.length, 1)} className="h-64 text-center">
+                        <div className="flex flex-col items-center justify-center text-muted-foreground">
+                          <div className="rounded-full bg-muted p-4 mb-4">
+                            <Download className="h-8 w-8 opacity-50" />
+                          </div>
+                          <p className="text-lg font-medium">Nenhum dado carregado</p>
+                          <p className="text-sm max-w-sm mt-1">
+                            Selecione um usuário, conta e período acima, depois clique em "Carregar Dados" para visualizar.
+                          </p>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
-
-              {filteredData.length > 0 && (
-                 <div className="px-4 py-2 text-sm text-muted-foreground flex justify-end">
-                    Mostrando {startIndex + 1}–{Math.min(endIndex, filteredData.length)} de {filteredData.length} campanhas
-                 </div>
-              )}
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Paginação */}
-        {totalPages > 1 && (
-          <div className="flex justify-center">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious 
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  const pageNumber = i + 1;
-                  return (
-                    <PaginationItem key={pageNumber}>
-                      <PaginationLink
-                        onClick={() => setCurrentPage(pageNumber)}
-                        isActive={currentPage === pageNumber}
-                        className="cursor-pointer"
-                      >
-                        {pageNumber}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                })}
-                
-                <PaginationItem>
-                  <PaginationNext 
-                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
           </div>
-        )}
+          
+          {/* Footer with secondary pagination if needed */}
+          {filteredData.length > 0 && (
+             <div className="p-4 border-t bg-muted/30 text-xs text-center text-muted-foreground">
+                Dados fornecidos via API da Meta Ads • Atualizado em tempo real
+             </div>
+          )}
+        </div>
       </div>
     </ProductLayout>
   );

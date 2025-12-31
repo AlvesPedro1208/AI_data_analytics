@@ -1,5 +1,5 @@
-from backend.database.connection import get_db_connection
-from backend.schemas.user_facebook import UserFacebookCreate
+from database.connection import get_db_connection
+from schemas.user_facebook import UserFacebookCreate
 from psycopg2.extras import RealDictCursor
 
 def criar_usuario(user: UserFacebookCreate):
@@ -63,7 +63,7 @@ def buscar_usuario_por_facebook_id(facebook_id: str):
     return user
 
 def buscar_user_id_por_facebook_id(facebook_id: str):
-    from backend.database.connection import get_db_connection
+    from database.connection import get_db_connection
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT id FROM user_facebook WHERE facebook_id = %s", (facebook_id,))

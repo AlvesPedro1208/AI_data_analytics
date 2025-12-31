@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from services.ia import gerar_configuracao_grafico
 from utils.planilhas import ler_planilha
-from backend.api.v1.endpoints.chat import user_dataframes  # importa o contexto em memória
+from api.v1.endpoints.chat import user_dataframes  # importa o contexto em memória
 
 class RequisicaoGrafico(BaseModel):
     pedido: str
@@ -15,8 +15,8 @@ router = APIRouter()
 @router.post("/gerar-grafico", tags=["Gráficos"])
 async def gerar_grafico(req: RequisicaoGrafico):
     try:
-        from backend.services.user_facebook import buscar_user_id_por_facebook_id
-        from backend.services.meta_extractor import carregar_account_ads_facebook_dataframe
+        from services.user_facebook import buscar_user_id_por_facebook_id
+        from services.meta_extractor import carregar_account_ads_facebook_dataframe
         user_id = buscar_user_id_por_facebook_id(req.facebook_id)
         if not user_id:
             raise HTTPException(status_code=400, detail="Usuário do Facebook não encontrado.")

@@ -1,5 +1,5 @@
-from backend.database.connection import get_db_connection
-from backend.schemas.accounts_ads_facebook import AccountAdsFacebookCreate
+from database.connection import get_db_connection
+from schemas.accounts_ads_facebook import AccountAdsFacebookCreate
 from psycopg2.extras import RealDictCursor
 
 def criar_account(account: AccountAdsFacebookCreate):
@@ -47,4 +47,29 @@ def listar_accounts_por_facebook_id(facebook_id: str):
     accounts = cur.fetchall()
     cur.close()
     conn.close()
-    return accounts 
+    return accounts
+
+def atualizar_status_account(account_id: int, ativo: bool):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute('''
+        UPDATE accounts_ads_facebook 
+        SET ativo = %s
+        WHERE id = %s
+        RETURNING *
+    ''', (ativo, account_id))
+    result = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return result
+
+def deletar_account(account_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute('DELETE FROM accounts_ads_facebook WHERE id = %s RETURNING id', (account_id,))
+    result = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return result

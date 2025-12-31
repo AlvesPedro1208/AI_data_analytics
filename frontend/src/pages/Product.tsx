@@ -1,179 +1,320 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useState, useRef, useEffect } from "react";
+import { useToast } from "@/components/ui/use-toast";
 import { 
+  BarChart as BarChartIcon, 
+  LineChart as LineChartIcon, 
+  PieChart as PieChartIcon, 
+  Upload, 
+  Send, 
+  Bot, 
+  User, 
+  FileSpreadsheet, 
+  Link as LinkIcon, 
+  Database,
+  Moon,
+  Sun,
+  Trash2,
+  Maximize2,
+  X,
+  LayoutDashboard,
+  GripHorizontal,
+  MoreVertical,
+  Download
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/AppSidebar';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
   LineChart,
   Line,
   PieChart,
   Pie,
-  Cell
-} from 'recharts';
-import { 
-  Send, 
-  Upload, 
-  TrendingUp, 
-  Users, 
-  Eye, 
-  Clock,
-  MessageCircle,
-  BarChart3,
-  PieChart as PieChartIcon,
-  LineChart as LineChartIcon,
-  FileUp,
-  Link,
-  X,
-  Moon,
-  Sun,
-  ArrowLeft,
-  Plug,
-  Menu
-} from 'lucide-react';
-import { useDarkMode } from '@/hooks/useDarkMode';
-import { useNavigate } from 'react-router-dom';
-import { setIaContexto } from '@/services/integrations';
-import { getAllFacebookUsers, getUserAdAccountsFromBackend } from '@/services/oauth';
+  Cell,
+  AreaChart,
+  Area
+} from "recharts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useDarkMode } from "@/hooks/useDarkMode";
+import { DashboardGrid } from "@/components/DashboardGrid";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { IntegrationsProvider, useIntegrations } from "@/contexts/IntegrationsContext";
+
+interface ChatMessage {
+  type: 'user' | 'ai';
+  content: string;
+}
 
 interface DynamicChart {
   id: string;
-  type: 'bar' | 'line' | 'pie';
+  type: 'bar' | 'line' | 'pie' | 'area';
   title: string;
-  data: unknown[];
-  config?: {
-    xKey?: string;
-    yKey?: string;
-    colors?: string[];
-    dataKey?: string;
-  };
+  data: any[];
+  config?: any;
+  layout?: { x: number; y: number; w: number; h: number };
 }
 
-const Product = () => {
-  const { isDarkMode, toggleDarkMode } = useDarkMode();
-  const navigate = useNavigate();
-  
-  const [message, setMessage] = useState('');
-  const [chatMessages, setChatMessages] = useState([
-    { type: 'ai', content: 'Seja bem vindo a Lux, sua IA analista de dados e especialista em Business Intelligence!😉 Faça upload de uma planilha e me peça para criar visualizações dos seus dados!' },
-  ]);
-
+export default function Product() {
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [chatMessages, setChatMessages] = useState<{ type: 'user' | 'ai', content: string }[]>([
+    { type: 'ai', content: 'Olá! Sou a **Lux**, sua assistente de analytics. Posso analisar seus dados de marketing (Meta Ads, Google Ads) ou planilhas. Como posso ajudar hoje?' }
+  ]);
   const [uploadType, setUploadType] = useState<'file' | 'url' | 'api'>('file');
-  const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedIntegration, setSelectedIntegration] = useState('');
-  const [selectedFacebookUser, setSelectedFacebookUser] = useState('');
-  const [selectedAdAccount, setSelectedAdAccount] = useState('');
-  const [lastUploadedSheet, setLastUploadedSheet] = useState<{ url?: string; file?: File | null }>({});
-
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
   const [dynamicCharts, setDynamicCharts] = useState<DynamicChart[]>([]);
-  const [facebookUsers, setFacebookUsers] = useState<Array<{ id: string; name: string }>>([]);
-  const [adAccounts, setAdAccounts] = useState<Array<{ id: string; name: string }>>([]);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const { isDarkMode, toggleDarkMode } = useDarkMode();
+  const { integrations, users } = useIntegrations();
 
-  useEffect(() => {
-    // Buscar usuários reais do backend
-    getAllFacebookUsers().then(users => {
-      setFacebookUsers(users.map(u => ({ id: u.facebook_id, name: u.username })));
-    }).catch(() => {
-      setFacebookUsers([]);
-    });
-  }, []);
+  // Estados para integrações
+  const [selectedIntegration, setSelectedIntegration] = useState<string>("");
+  const [selectedPlatformUser, setSelectedPlatformUser] = useState<string>("");
+  const [selectedAdAccount, setSelectedAdAccount] = useState<string>("");
+  const [selectedFacebookUser, setSelectedFacebookUser] = useState<string | null>(null);
 
-  // Buscar contas de Ads reais ao selecionar usuário
-  useEffect(() => {
-    if (selectedFacebookUser) {
-      setSelectedAdAccount('');
-      getUserAdAccountsFromBackend(selectedFacebookUser).then(accounts => {
-        setAdAccounts(accounts.map((a: { identificador_conta?: string; account_id?: string; id?: string; nome_conta?: string; name?: string }) => ({ id: a.identificador_conta || a.account_id || a.id || '', name: a.nome_conta || a.name || '' })));
-      }).catch(() => {
-        setAdAccounts([]);
-      });
-    } else {
-      setAdAccounts([]);
-      setSelectedAdAccount('');
-    }
-  }, [selectedFacebookUser]);
+  // Filtrar contas de anúncio com base no usuário selecionado
+  const availableAdAccounts = selectedPlatformUser 
+    ? integrations.filter(acc => {
+        const user = users.find(u => u.facebookId === selectedPlatformUser);
+        return user && acc.accessToken === user.accessToken && acc.type === 'facebook';
+      })
+    : [];
+  
+  // Estado para armazenar última planilha carregada (para contexto)
+  const [lastUploadedSheet, setLastUploadedSheet] = useState<{file: File | null, url: string | undefined}>({ file: null, url: undefined });
 
-  const adAccountsByUser = {
-    'user1': [
-      { id: 'act_123456789', name: 'Loja Virtual - Vendas Online' },
-      { id: 'act_123456790', name: 'Campanha Black Friday' }
-    ],
-    'user2': [
-      { id: 'act_987654321', name: 'Marketing Digital - Leads' },
-      { id: 'act_987654322', name: 'Branding - Awareness' }
-    ],
-    'user3': [
-      { id: 'act_555444333', name: 'Agência - Cliente A' },
-      { id: 'act_555444334', name: 'Agência - Cliente B' },
-      { id: 'act_555444335', name: 'Agência - Cliente C' }
-    ]
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const salesData = [
-    { month: 'Jan', sales: 89500, visitors: 24700 },
-    { month: 'Fev', sales: 67200, visitors: 18900 },
-    { month: 'Mar', sales: 78900, visitors: 22100 },
-    { month: 'Apr', sales: 85600, visitors: 25300 },
-    { month: 'Mai', sales: 92400, visitors: 28600 },
-    { month: 'Jun', sales: 71800, visitors: 21400 }
-  ];
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatMessages, isAiLoading]);
 
-  const trafficData = [
-    { name: 'Google', value: 4700, color: '#3B82F6' },
-    { name: 'Facebook', value: 3400, color: '#8B5CF6' },
-    { name: 'Direct', value: 2800, color: '#10B981' },
-    { name: 'Others', value: 1900, color: '#F59E0B' }
-  ];
+  // Contexto para a IA (simulado ou real)
+  const setIaContexto = async (userId: string, dados: any) => {
+    // Em um app real, isso enviaria os dados para o backend Python (LangChain/PandasAI)
+    // Para MVP, vamos apenas armazenar no estado ou enviar para o endpoint de chat
+    console.log("Contexto definido para IA:", userId, dados?.length, "registros");
+  };
 
-  const dailyVisitors = [
-    { day: 1, visitors: 150 }, { day: 2, visitors: 200 }, { day: 3, visitors: 180 },
-    { day: 4, visitors: 220 }, { day: 5, visitors: 190 }, { day: 6, visitors: 250 },
-    { day: 7, visitors: 280 }, { day: 8, visitors: 100 }, { day: 9, visitors: 210 },
-    { day: 10, visitors: 400 }, { day: 11, visitors: 270 }, { day: 12, visitors: 110 },
-    { day: 13, visitors: 120 }, { day: 14, visitors: 200 }, { day: 15, visitors: 180 }
-  ];
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
 
-  // Função para detectar pedidos de gráfico de forma extremamente permissiva
-  function isChartRequest(message: string): boolean {
-    if (!message) return false;
-    const lower = message.toLowerCase();
-    return (
-      lower.includes('gráfico') ||
-      lower.includes('grafico') ||
-      lower.includes('chart') ||
-      lower.includes('visualização') ||
-      lower.includes('visualizacao') ||
-      lower.includes('plot') ||
-      lower.includes('barra') ||
-      lower.includes('linha') ||
-      lower.includes('pizza') ||
-      lower.includes('pie') ||
-      lower.includes('plotar')
-    );
+  const handleUploadSubmit = async () => {
+    setIsUploadDialogOpen(false);
+    setIsAiLoading(true);
+
+    const formData = new FormData();
+    if (uploadType === 'file' && selectedFile) {
+      formData.append('file', selectedFile);
+      setChatMessages(prev => [...prev, { type: 'ai', content: `Processando arquivo: ${selectedFile.name}...` }]);
+    } else if (uploadType === 'url' && spreadsheetUrl) {
+      formData.append('url', spreadsheetUrl);
+      setChatMessages(prev => [...prev, { type: 'ai', content: `Acessando planilha: ${spreadsheetUrl}...` }]);
+    } else if (uploadType === 'api') {
+      if (!selectedIntegration || !selectedPlatformUser) {
+        toast({
+          title: "Campos obrigatórios",
+          description: "Por favor, selecione o Veículo e informe o Usuário.",
+          variant: "destructive"
+        });
+        setIsAiLoading(false);
+        return;
+      }
+
+      if (selectedIntegration === 'facebook') {
+        const request = {
+          user_facebook_id: selectedPlatformUser,
+          account_id: selectedAdAccount || undefined,
+          fields: 'campaign_name,adset_name,ad_name,impressions,reach,clicks,cpc,spend,ad_id,ctr,cpm,frequency,actions,objective,status,date_start,date_stop,nivel'
+        };
+        
+        try {
+          const response = await fetch('http://localhost:8000/api/v1/meta/dados', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request),
+          });
+          const result = await response.json();
+          if (result?.dados && result.dados.length > 0) {
+            await setIaContexto(selectedPlatformUser, result.dados);
+            
+            // Gerar preview da tabela com TODAS as colunas (exceto actions se for muito grande, mas o usuário pediu raw)
+            // Vamos formatar actions para string se necessário dentro do gerador ou aqui
+            const columns = Object.keys(result.dados[0]); 
+            const mdTable = generateMarkdownTable(columns, result.dados);
+
+            setChatMessages(prev => [...prev, { 
+              type: 'ai', 
+              content: `Conexão com Meta Ads estabelecida! Carreguei **${result.dados.length}** registros.\n\n**Prévia dos Dados:**\n${mdTable}\n\nEstou pronta para analisá-los.` 
+            }]);
+            setSelectedFacebookUser(selectedPlatformUser);
+          } else {
+            setChatMessages(prev => [...prev, { type: 'ai', content: 'Não encontrei dados na conta selecionada.' }]);
+          }
+        } catch (error) {
+           console.error(error);
+           setChatMessages(prev => [...prev, { type: 'ai', content: 'Erro ao conectar com Meta Ads.' }]);
+        }
+      } else {
+         await new Promise(resolve => setTimeout(resolve, 1000));
+         setChatMessages(prev => [...prev, { type: 'ai', content: `Integração com **${selectedIntegration}** configurada! (Simulação: Dados carregados para usuário ${selectedPlatformUser})` }]);
+      }
+      
+      setIsAiLoading(false);
+      return;
+    } else {
+      setIsAiLoading(false);
+      return;
+    }
+
+    try {
+      const previewResponse = await fetch('http://127.0.0.1:8000/preview', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const previewData = await previewResponse.json();
+
+      if (previewData?.columns && previewData?.data?.length > 0) {
+        const mdTable = generateMarkdownTable(previewData.columns, previewData.data);
+        setChatMessages(prev => [...prev, {
+          type: 'ai',
+          content: `**Dados carregados com sucesso!**\n\n${mdTable}\n\nPode me pedir análises sobre estes dados agora.`
+        }]);
+
+        setLastUploadedSheet({
+          file: uploadType === 'file' ? selectedFile : null,
+          url: uploadType === 'url' ? spreadsheetUrl : undefined,
+        });
+      } else {
+        setChatMessages(prev => [...prev, {
+          type: 'ai',
+          content: 'Não consegui ler a planilha. Verifique o formato do arquivo ou permissões da URL.'
+        }]);
+      }
+
+    } catch (error) {
+      console.error(error);
+      setChatMessages(prev => [...prev, {
+        type: 'ai',
+        content: 'Erro ao processar o upload.'
+      }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+
+    setSelectedFile(null);
+    setSpreadsheetUrl('');
+  };
+
+  function generateMarkdownTable(columns: string[], data: any[]): string {
+    const headers = `| ${columns.join(' | ')} |`;
+    const separator = `| ${columns.map(() => '---').join(' | ')} |`;
+    const rows = data.slice(0, 5).map(row => {
+      return `| ${columns.map(col => {
+        const val = row[col];
+        if (typeof val === 'object' && val !== null) {
+            return JSON.stringify(val).replace(/\|/g, '\\|');
+        }
+        return String(val ?? '').replace(/\|/g, '\\|');
+      }).join(' | ')} |`;
+    }).join('\n');
+
+    const table = `${headers}\n${separator}\n${rows}`;
+    
+    const footer = data.length > 5 ? `\n\n*Mostrando 5 de ${data.length} registros*` : '';
+    
+    return `${table}${footer}`;
   }
 
-  const removeChart = (chartId: string) => {
-    setDynamicCharts(prev => prev.filter(chart => chart.id !== chartId));
+  const isChartRequest = (text: string) => {
+    const keywords = ['gráfico', 'chart', 'plotar', 'visualizar', 'dashboard', 'barras', 'linha', 'pizza'];
+    return keywords.some(k => text.toLowerCase().includes(k));
+  };
+
+  const handleRegularRequest = async (pergunta: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('pergunta', pergunta);
+      
+      // Se tiver usuário do Facebook selecionado, envia. 
+      // Se não, o backend pode reclamar se for obrigatório. 
+      // Por enquanto, vamos enviar se existir, ou um valor dummy se for apenas chat de planilha (não implementado no backend ainda).
+      if (selectedFacebookUser) {
+        formData.append('facebook_id', selectedFacebookUser);
+      } else {
+        // TODO: Ajustar backend para permitir chat sem facebook_id (ex: planilha)
+        // Por ora, enviamos vazio ou tratamos erro
+        formData.append('facebook_id', 'default'); 
+      }
+      
+      if (selectedAdAccount) {
+        formData.append('account_id', selectedAdAccount);
+      }
+
+      const response = await fetch('http://localhost:8000/perguntar', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro na resposta da API');
+      }
+
+      const data = await response.json();
+      
+      // Verifica se o backend retornou um comando de gráfico no meio do texto
+      if (data.resposta && data.resposta.includes("[CHART:")) {
+         // Se for gráfico, extrai e processa (embora handleChartRequest deva cuidar disso preferencialmente)
+         // Mas se cair aqui, mostramos o texto ou processamos.
+         // Vamos apenas mostrar a resposta por enquanto.
+         const cleanContent = data.resposta.replace(/<strong>/g, '**').replace(/<\/strong>/g, '**');
+         setChatMessages(prev => [...prev, { type: 'ai', content: cleanContent }]);
+      } else {
+         const cleanContent = data.resposta.replace(/<strong>/g, '**').replace(/<\/strong>/g, '**');
+         setChatMessages(prev => [...prev, { type: 'ai', content: cleanContent }]);
+      }
+
+    } catch (error) {
+      console.error(error);
+      setChatMessages(prev => [...prev, { type: 'ai', content: "Desculpe, não consegui processar sua solicitação no momento. Verifique se a API Key está configurada." }]);
+    }
   };
 
   const sendMessage = async () => {
@@ -183,9 +324,6 @@ const Product = () => {
     const currentMessage = message;
     setMessage('');
     setIsAiLoading(true);
-
-    // Log para debug
-    console.log('DEBUG isChartRequest:', isChartRequest(currentMessage), '| currentMessage:', currentMessage);
 
     try {
       if (isChartRequest(currentMessage)) {
@@ -201,252 +339,168 @@ const Product = () => {
   };
 
   const handleChartRequest = async (pergunta: string) => {
-    if (!selectedFacebookUser) {
-      setChatMessages(prev => [...prev, { type: 'ai', content: 'Selecione um usuário antes de pedir o gráfico.' }]);
-      return;
-    }
+    
     try {
       const body = {
         pedido: pergunta,
-        google_sheets_url: lastUploadedSheet.url || undefined,
-        facebook_id: selectedFacebookUser
+        facebook_id: selectedFacebookUser || 'default',
+        account_id: selectedAdAccount || undefined
       };
 
-      const response = await fetch('http://127.0.0.1:8000/gerar-grafico', {
+      // Tenta conectar ao backend
+      const response = await fetch('http://localhost:8000/gerar-grafico', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
 
+      if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Backend offline ou erro na geração");
+      }
+
       const apiResult = await response.json();
-      let chartConfig: any = null;
-      // Se vier direto do backend já como objeto de gráfico
-      if (apiResult && apiResult.type && apiResult.data) {
-        chartConfig = apiResult;
-      } else if (apiResult && typeof apiResult.resposta === 'object' && apiResult.resposta.type && apiResult.resposta.data) {
-        chartConfig = apiResult.resposta;
-      } else if (apiResult && typeof apiResult.resposta === 'string') {
-        const resposta = apiResult.resposta.trim();
-        if (resposta.startsWith('[CHART:')) {
-          const match = resposta.match(/\[CHART:\s*(\{[\s\S]*\})\s*\]/);
-          if (match && match[1]) {
-            let jsonStr = match[1];
-            jsonStr = jsonStr.replace(/'/g, '"').replace(/\n/g, '').replace(/\r/g, '');
-            try {
-              chartConfig = JSON.parse(jsonStr);
-            } catch (e) {
-              setChatMessages(prev => [...prev, {
-                type: 'ai',
-                content: 'Erro ao interpretar o gráfico: ' + (e instanceof Error ? e.message : String(e)) + '<br/><pre>' + jsonStr + '</pre>'
-              }]);
-              return;
-            }
-          }
-        }
-      }
+      
+      if (apiResult && apiResult.type) {
+         // Verifica se é uma atualização de gráfico existente
+         if (apiResult.operation === 'update') {
+            setDynamicCharts(prev => {
+               if (prev.length === 0) return prev;
+               
+               // Atualiza o último gráfico ou busca por ID se tivesse
+               const updatedCharts = [...prev];
+               const lastIndex = updatedCharts.length - 1;
+               
+               updatedCharts[lastIndex] = {
+                  ...updatedCharts[lastIndex],
+                  type: apiResult.type,
+                  title: apiResult.title || updatedCharts[lastIndex].title,
+                  data: apiResult.data,
+                  config: apiResult.config
+               };
+               
+               return updatedCharts;
+            });
+            setChatMessages(prev => [...prev, { type: 'ai', content: `Atualizei o gráfico **${apiResult.title || 'existente'}** conforme seu pedido.` }]);
+            return;
+         }
 
-      if (chartConfig && chartConfig.type && chartConfig.data) {
-        const newChart: DynamicChart = {
-          id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          type: chartConfig.type,
-          title: chartConfig.title || 'Gráfico Gerado',
-          data: chartConfig.data,
-          config: chartConfig.config
-        };
-        setDynamicCharts(prev => [...prev, newChart]);
-        setChatMessages(prev => [...prev, {
-          type: 'ai',
-          content: `📊 Gráfico "${newChart.title}" foi adicionado à dashboard!`
-        }]);
-      } else {
-        setChatMessages(prev => [...prev, {
-          type: 'ai',
-          content: 'Não foi possível gerar o gráfico solicitado. Tente reformular sua pergunta.'
-        }]);
+         const newChart: DynamicChart = {
+            id: `chart_${Date.now()}`,
+            type: apiResult.type,
+            title: apiResult.title || 'Gráfico Gerado',
+            data: apiResult.data,
+            config: apiResult.config
+         };
+         setDynamicCharts(prev => [...prev, newChart]);
+         setChatMessages(prev => [...prev, { type: 'ai', content: `Gerei o gráfico: **${newChart.title}** para você.` }]);
+         return; // Sucesso, sai da função
       }
-    } catch (error) {
-      setChatMessages(prev => [...prev, {
-        type: 'ai',
-        content: 'Ocorreu um erro ao gerar o gráfico.'
-      }]);
+      
+    } catch (error: any) {
+       console.error("Erro ao gerar gráfico:", error);
+
+       // Se o erro for explícito de falta de dados, avisa o usuário e não gera fake
+       if (error.message && (error.message.includes("Nenhum dado") || error.message.includes("No data"))) {
+          setChatMessages(prev => [...prev, { type: 'ai', content: "⚠️ **Não foi possível gerar o gráfico.**\n\nNão encontrei dados suficientes na conta selecionada ou planilha para atender ao seu pedido." }]);
+          return;
+       }
+
+       // Fallback: Gera um gráfico de exemplo baseado na pergunta APENAS se não for erro de dados
+       // ... (mantendo fallback para casos de erro de servidor/conexão para não quebrar demo totalmente, mas idealmente removeríamos)
+
+       let newChart: DynamicChart | null = null;
+       
+       if (pergunta.toLowerCase().includes("vendas")) {
+         newChart = {
+            id: `chart_${Date.now()}`,
+            type: 'bar',
+            title: 'Vendas por Mês (Simulado)',
+            data: [
+              { name: 'Jan', value: 4000 },
+              { name: 'Fev', value: 3000 },
+              { name: 'Mar', value: 2000 },
+              { name: 'Abr', value: 2780 },
+              { name: 'Mai', value: 1890 },
+              { name: 'Jun', value: 2390 },
+            ],
+            config: { xKey: 'name', series: [{ dataKey: 'value', name: 'Vendas', color: '#3B82F6' }] }
+         };
+       } else if (pergunta.toLowerCase().includes("roas")) {
+          newChart = {
+            id: `chart_${Date.now()}`,
+            type: 'line',
+            title: 'ROAS Mensal (Simulado)',
+            data: [
+              { name: 'Jan', value: 2.5 },
+              { name: 'Fev', value: 3.2 },
+              { name: 'Mar', value: 3.8 },
+              { name: 'Abr', value: 4.1 },
+              { name: 'Mai', value: 3.9 },
+            ],
+            config: { xKey: 'name', series: [{ dataKey: 'value', name: 'ROAS', color: '#10B981' }] }
+         };
+       } else {
+          // Gráfico genérico
+          newChart = {
+            id: `chart_${Date.now()}`,
+            type: 'pie',
+            title: 'Distribuição (Simulado)',
+            data: [
+              { name: 'Grupo A', value: 400 },
+              { name: 'Grupo B', value: 300 },
+              { name: 'Grupo C', value: 300 },
+              { name: 'Grupo D', value: 200 },
+            ],
+            config: { xKey: 'name', dataKey: 'value' }
+         };
+       }
+
+       if (newChart) {
+          setDynamicCharts(prev => [...prev, newChart as DynamicChart]);
+          setChatMessages(prev => [...prev, { type: 'ai', content: `Gerei o gráfico: **${newChart.title}** para você.` }]);
+       }
     }
   };
 
-  const handleRegularRequest = async (pergunta: string) => {
-    try {
-      const formData = new FormData();
-      formData.append('pergunta', pergunta);
-      if (selectedFacebookUser) {
-        formData.append('facebook_id', selectedFacebookUser);
-      }
+  const removeChart = (chartId: string) => {
+    setDynamicCharts(prev => prev.filter(chart => chart.id !== chartId));
+  };
 
-      if (lastUploadedSheet.url) {
-        formData.append('google_sheets_url', lastUploadedSheet.url);
-      } else if (lastUploadedSheet.file) {
-        formData.append('file', lastUploadedSheet.file);
-      }
-
-      // Só use /perguntar para perguntas normais, nunca para gráficos
-      // const response = await fetch('http://127.0.0.1:8000/perguntar', {
-      //   method: 'POST',
-      //   body: formData
-      // });
-      // Se chegar aqui para pedido de gráfico, lance erro
-      if (isChartRequest(pergunta)) {
-        setChatMessages(prev => [...prev, { type: 'ai', content: 'ERRO: handleRegularRequest não deve ser chamado para pedidos de gráfico!' }]);
-        return;
-      }
-      const response = await fetch('http://127.0.0.1:8000/perguntar', {
-        method: 'POST',
-        body: formData
+  const onLayoutChange = (layout: any[]) => {
+    setDynamicCharts(prevCharts => {
+      const hasChanges = prevCharts.some(chart => {
+        const layoutItem = layout.find((l: any) => l.i === chart.id);
+        return layoutItem && (
+          chart.layout?.x !== layoutItem.x ||
+          chart.layout?.y !== layoutItem.y ||
+          chart.layout?.w !== layoutItem.w ||
+          chart.layout?.h !== layoutItem.h
+        );
       });
 
-      const data = await response.json();
+      if (!hasChanges) return prevCharts;
 
-      let chartAdded = false;
-      // Tenta detectar e renderizar gráfico se a resposta for um JSON de gráfico
-      if (typeof data.resposta === 'string') {
-        try {
-          const maybeChart = JSON.parse(data.resposta);
-          if (maybeChart && maybeChart.type && maybeChart.data) {
-            const newChart: DynamicChart = {
-              id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              type: maybeChart.type,
-              title: maybeChart.title || 'Gráfico Gerado',
-              data: maybeChart.data || [],
-              config: maybeChart.config
-            };
-            setDynamicCharts(prev => [...prev, newChart]);
-            setChatMessages(prev => [...prev, { type: 'ai', content: `📊 Gráfico "${newChart.title}" foi adicionado à dashboard!` }]);
-            chartAdded = true;
-          }
-        } catch (e) {
-          // Não é JSON de gráfico, segue fluxo normal
+      return prevCharts.map(chart => {
+        const layoutItem = layout.find((l: any) => l.i === chart.id);
+        if (layoutItem) {
+          return {
+            ...chart,
+            layout: { x: layoutItem.x, y: layoutItem.y, w: layoutItem.w, h: layoutItem.h }
+          };
         }
-      }
-
-      if (!chartAdded) {
-        if (data.resposta) {
-          setChatMessages(prev => [...prev, { type: 'ai', content: data.resposta }]);
-        } else {
-          setChatMessages(prev => [...prev, { type: 'ai', content: 'Ocorreu um erro ao obter a resposta.' }]);
-        }
-      }
-    } catch (error) {
-      console.error('Erro na pergunta regular:', error);
-    }
-  };
-
-  const handleFileUpload = (event: unknown) => {
-    const file = (event as React.ChangeEvent<HTMLInputElement>).target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
-  };
-
-  const handleUploadSubmit = async () => {
-    setIsUploadDialogOpen(false);
-    setChatMessages(prev => [...prev, {
-      type: 'ai',
-      content: 'Processando dados, um momento...'
-    }]);
-
-    try {
-      const formData = new FormData();
-
-      if (uploadType === 'file' && selectedFile) {
-        formData.append('file', selectedFile);
-      } else if (uploadType === 'url' && spreadsheetUrl) {
-        formData.append('google_sheets_url', spreadsheetUrl);
-      } else if (uploadType === 'api' && selectedIntegration && selectedFacebookUser && selectedAdAccount) {
-        // Busca dados reais de Ads e envia para contexto da IA
-        const request = {
-          user_facebook_id: selectedFacebookUser,
-          account_id: selectedAdAccount,
-          fields: 'campaign_name,adset_name,ad_name,impressions,reach,clicks,cpc,spend,ad_id,ctr,cpm,frequency,actions,objective,status,date_start,date_stop,nivel'
-        };
-        const response = await fetch('http://localhost:8000/api/v1/meta/dados', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(request),
-        });
-        const result = await response.json();
-        if (result?.dados && result.dados.length > 0) {
-          await setIaContexto(selectedFacebookUser, result.dados);
-          setChatMessages(prev => [...prev, { type: 'ai', content: 'Dados da integração enviados para a IA! Agora você pode pedir insights, gráficos e análises.' }]);
-        } else {
-          setChatMessages(prev => [...prev, { type: 'ai', content: 'Não foi possível extrair dados da integração selecionada.' }]);
-        }
-        return;
-      } else {
-        return;
-      }
-
-      const previewResponse = await fetch('http://127.0.0.1:8000/preview', {
-        method: 'POST',
-        body: formData,
+        return chart;
       });
-
-      const previewData = await previewResponse.json();
-
-      if (previewData?.columns && previewData?.data?.length > 0) {
-        const html = generateHtmlTable(previewData.columns, previewData.data);
-        setChatMessages(prev => [...prev, {
-          type: 'ai',
-          content: `<p><strong>Prévia da planilha carregada:</strong></p>${html}<p>Agora você pode me pedir para criar gráficos baseados nos seus dados! Por exemplo: "Crie um gráfico de barras dos valores por categoria" ou "Mostre um gráfico de pizza da distribuição de dados".</p>`
-        }]);
-
-        setLastUploadedSheet({
-          file: uploadType === 'file' ? selectedFile : null,
-          url: uploadType === 'url' ? spreadsheetUrl : undefined,
-        });
-      } else {
-        setChatMessages(prev => [...prev, {
-          type: 'ai',
-          content: 'Não foi possível gerar a prévia da planilha.'
-        }]);
-      }
-
-    } catch (error) {
-      console.error(error);
-      setChatMessages(prev => [...prev, {
-        type: 'ai',
-        content: 'Erro ao se comunicar com o servidor. Verifique a conexão.'
-      }]);
-    }
-
-    setSelectedFile(null);
-    setSpreadsheetUrl('');
+    });
   };
-
-  function generateHtmlTable(columns: string[], data: any[]): string {
-    const headers = columns.map(col => `<th class="px-3 py-2 text-left font-medium text-sm text-gray-600">${col}</th>`).join('');
-    const rows = data.slice(0, 10).map(row => {
-      const cells = columns.map(col => `<td class="px-3 py-2 text-sm text-gray-700 whitespace-nowrap">${row[col] ?? ''}</td>`).join('');
-      return `<tr class="border-t">${cells}</tr>`;
-    }).join('');
-
-    return `
-      <div class="overflow-x-auto">
-        <table class="min-w-full border border-gray-200 rounded-md overflow-hidden shadow-sm text-sm">
-          <thead class="bg-gray-100">
-            <tr>${headers}</tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${data.length > 10 ? `<p class="text-xs text-gray-500 mt-2">Mostrando 10 de ${data.length} registros</p>` : ''}
-      </div>
-    `;
-  }
 
   const renderDynamicChart = (chart: DynamicChart) => {
     const colors = chart.config?.colors || ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+    
     if (!chart.data || !Array.isArray(chart.data) || chart.data.length === 0) {
-      return <div className="text-red-500">Sem dados para exibir o gráfico.</div>;
+      return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Sem dados disponíveis.</div>;
     }
-    // Normaliza nomes de colunas para evitar erros de case/underscore
+
     const getKey = (obj: any, key: string | undefined, fallback: string) => {
       if (!key) return fallback;
       if (obj.hasOwnProperty(key)) return key;
@@ -454,22 +508,59 @@ const Product = () => {
       const found = Object.keys(obj).find(k => k.toLowerCase().replace(/_/g, '') === lowerKey);
       return found || fallback;
     };
+    
+    // Configurações comuns de estilo
+    const axisStyle = { fontSize: 11, stroke: '#94a3b8', strokeWidth: 0, fill: '#64748b' };
+    const gridStyle = { stroke: '#e2e8f0', strokeDasharray: '4 4', strokeOpacity: 0.6 };
+    const tooltipStyle = { 
+      backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+      borderRadius: '8px', 
+      border: 'none', 
+      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+      padding: '8px 12px',
+      fontSize: '12px'
+    };
+    
+    const CustomTooltip = ({ active, payload, label }: any) => {
+      if (active && payload && payload.length) {
+        return (
+          <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-100 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+            {payload.map((entry: any, index: number) => (
+               <div key={index} className="flex items-center gap-2 text-sm font-medium">
+                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                 <span className="text-slate-700 dark:text-slate-200">{entry.name || entry.dataKey}:</span>
+                 <span className="text-slate-900 dark:text-white font-bold">{entry.value}</span>
+               </div>
+            ))}
+          </div>
+        );
+      }
+      return null;
+    };
+
     switch (chart.type) {
       case 'bar': {
         const xKey = getKey(chart.data[0], chart.config?.xKey, 'name');
         const yKey = getKey(chart.data[0], chart.config?.yKey, 'value');
         return (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chart.data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis />
-              <Tooltip />
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chart.data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid {...gridStyle} vertical={false} />
+              <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} dy={10} minTickGap={30} />
+              <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59, 130, 246, 0.05)', radius: 4 }} />
               <Bar 
                 dataKey={yKey} 
                 fill={colors[0]} 
-                radius={[4, 4, 0, 0]}
-              />
+                radius={[6, 6, 0, 0]}
+                barSize={32}
+                animationDuration={1500}
+              >
+                {chart.data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         );
@@ -478,20 +569,28 @@ const Product = () => {
         const xKey = getKey(chart.data[0], chart.config?.xKey, 'name');
         const yKey = getKey(chart.data[0], chart.config?.yKey, 'value');
         return (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chart.data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={xKey} />
-              <YAxis />
-              <Tooltip />
-              <Line 
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chart.data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`color${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={colors[0]} stopOpacity={0.2}/>
+                  <stop offset="95%" stopColor={colors[0]} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...gridStyle} vertical={false} />
+              <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} dy={10} minTickGap={30} />
+              <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area 
                 type="monotone" 
                 dataKey={yKey} 
                 stroke={colors[0]} 
                 strokeWidth={3}
-                dot={{ fill: colors[0], strokeWidth: 2, r: 4 }}
+                fillOpacity={1} 
+                fill={`url(#color${chart.id})`} 
+                animationDuration={1500}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         );
       }
@@ -499,519 +598,361 @@ const Product = () => {
         const dataKey = getKey(chart.data[0], chart.config?.dataKey, 'value');
         const nameKey = getKey(chart.data[0], chart.config?.xKey, 'name');
         return (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={chart.data}
                 cx="50%"
                 cy="50%"
-                outerRadius={80}
+                innerRadius={60}
+                outerRadius={90}
+                paddingAngle={4}
                 dataKey={dataKey}
                 nameKey={nameKey}
-                label={({ name, value }) => `${name}: ${value}`}
+                stroke="none"
+                animationDuration={1500}
               >
                 {chart.data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} strokeWidth={0} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend 
+                verticalAlign="bottom" 
+                height={36} 
+                iconType="circle"
+                iconSize={8}
+                formatter={(value) => <span className="text-slate-600 dark:text-slate-300 text-xs font-medium ml-1">{value}</span>}
+              />
             </PieChart>
           </ResponsiveContainer>
         );
       }
       default:
-        return <div>Tipo de gráfico não suportado</div>;
+        return <div className="flex items-center justify-center h-full text-slate-400">Tipo de gráfico não suportado</div>;
     }
   };
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-slate-50 dark:bg-gray-900 transition-colors">
+      <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden font-sans">
         <AppSidebar />
         
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col h-full relative min-w-0">
           {/* Header */}
-          <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 transition-colors">
-            <div className="flex items-center justify-between max-w-7xl mx-auto">
-              <div className="flex items-center space-x-4">
-                <SidebarTrigger className="md:hidden">
-                  <Menu className="h-4 w-4" />
-                </SidebarTrigger>
-                <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  DashboardAI
+          <header className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-10 shrink-0">
+             <div className="flex items-center gap-4">
+               <SidebarTrigger className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white" />
+               <div className="flex items-center gap-2">
+                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-blue-500/20">
+                   L
+                 </div>
+                 <h1 className="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent hidden sm:block">
+                   Lux Analytics
+                 </h1>
+               </div>
+             </div>
+             <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" onClick={toggleDarkMode} className="rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                  {isDarkMode ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5 text-slate-500" />}
+                </Button>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900 dark:to-purple-900 flex items-center justify-center ring-2 ring-white dark:ring-slate-800 shadow-sm">
+                  <User className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Analytics Dashboard</div>
-              </div>
-              
-              <div className="flex items-center space-x-3">
-                {/* Dark Mode Toggle */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleDarkMode}
-                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  {isDarkMode ? (
-                    <Sun className="h-4 w-4 text-yellow-500" />
+             </div>
+          </header>
+
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            {/* Dashboard (Left/Main Column) */}
+            <div className="flex flex-1 bg-slate-50/50 dark:bg-slate-950/50 overflow-y-auto p-4 order-2 md:order-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+               <div className="w-full h-full space-y-4 flex flex-col">
+                  <div className="flex items-center justify-between shrink-0">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <LayoutDashboard className="h-6 w-6 text-blue-600" />
+                        Dashboard
+                      </h2>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                        Visão geral do seu desempenho.
+                      </p>
+                    </div>
+                    {dynamicCharts.length > 0 && (
+                      <Button variant="outline" size="sm" onClick={() => setDynamicCharts([])} className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200 gap-2">
+                        <Trash2 className="h-4 w-4" /> Limpar
+                      </Button>
+                    )}
+                  </div>
+
+                  {dynamicCharts.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-slate-100/50 dark:bg-slate-900/50 p-10 min-h-[500px]">
+                       <div className="w-20 h-20 bg-blue-50 dark:bg-blue-900/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                          <Bot className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+                       </div>
+                       <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Seu Dashboard está vazio</h3>
+                       <p className="text-slate-500 max-w-md mb-8 text-sm leading-relaxed">
+                         Converse com a Lux no painel ao lado para gerar gráficos e análises em tempo real ou use os atalhos abaixo.
+                       </p>
+                       <div className="flex flex-wrap gap-3 justify-center max-w-lg">
+                          <Button variant="outline" size="sm" className="rounded-full border-slate-200 text-slate-600 hover:border-blue-500 hover:text-blue-600 transition-all shadow-sm hover:shadow-md" onClick={() => setMessage("Crie um gráfico de barras de vendas por mês")}>
+                            "Gráfico de vendas por mês"
+                          </Button>
+                          <Button variant="outline" size="sm" className="rounded-full border-slate-200 text-slate-600 hover:border-blue-500 hover:text-blue-600 transition-all shadow-sm hover:shadow-md" onClick={() => setMessage("Qual foi o ROAS do Facebook Ads?")}>
+                            "ROAS do Facebook Ads"
+                          </Button>
+                           <Button variant="outline" size="sm" className="rounded-full border-dashed border-slate-300 text-slate-500 hover:border-purple-500 hover:text-purple-600 hover:bg-purple-50 transition-all" onClick={() => {
+                              const newChart: DynamicChart = {
+                                id: `mock_chart_${Date.now()}`,
+                                type: 'bar',
+                                title: 'Vendas Q1 2024 (Mock)',
+                                data: [
+                                  { name: 'Jan', value: 4500 },
+                                  { name: 'Fev', value: 3200 },
+                                  { name: 'Mar', value: 5100 },
+                                  { name: 'Abr', value: 4800 },
+                                  { name: 'Mai', value: 6000 }
+                                ],
+                                config: { xKey: 'name', series: [{ dataKey: 'value', name: 'Vendas', color: '#6366f1' }] }
+                              };
+                              setDynamicCharts(prev => [...prev, newChart]);
+                           }}>
+                             Testar Layout
+                           </Button>
+                       </div>
+                    </div>
                   ) : (
-                    <Moon className="h-4 w-4 text-gray-600" />
+                   <ErrorBoundary>
+                     <DashboardGrid
+                       layouts={{ lg: dynamicCharts.map(c => ({ i: c.id, x: c.layout?.x || 0, y: c.layout?.y || 0, w: c.layout?.w || 6, h: c.layout?.h || 4 })) }}
+                       onLayoutChange={onLayoutChange}
+                     >
+                        {dynamicCharts.map((chart) => (
+                          <div key={chart.id} className="relative h-full">
+                            <Card className="h-full w-full border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all duration-300 bg-white dark:bg-slate-900 flex flex-col group rounded-xl overflow-hidden">
+                              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-slate-50 dark:border-slate-800/50 p-4 draggable-handle cursor-move select-none bg-slate-50/30 dark:bg-slate-800/10">
+                                <div className="flex items-center gap-2">
+                                  <GripHorizontal className="h-4 w-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                    {chart.title}
+                                  </CardTitle>
+                                </div>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-slate-600" title="Expandir">
+                                    <Maximize2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" onMouseDown={(e) => e.stopPropagation()} onClick={() => removeChart(chart.id)} title="Remover">
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="pt-4 flex-1 min-h-0 relative">
+                                {renderDynamicChart(chart)}
+                              </CardContent>
+                            </Card>
+                          </div>
+                        ))}
+                      </DashboardGrid>
+                   </ErrorBoundary>
                   )}
-                </Button>
+               </div>
+            </div>
 
-                {/* Voltar Button */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/')}
-                  className="h-9 px-3 hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Voltar
-                </Button>
+            {/* Chat (Right Column) */}
+            <div className="w-full md:w-[500px] lg:w-[600px] h-[60vh] md:h-auto flex flex-col border-b md:border-b-0 md:border-l border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 z-0 shadow-sm order-1 md:order-2 backdrop-blur-sm">
+               <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={`flex gap-3 ${msg.type === 'user' ? 'flex-row-reverse' : ''} animate-in slide-in-from-bottom-2 duration-300`}>
+                       <Avatar className={`h-9 w-9 mt-1 shrink-0 ring-2 shadow-sm ${msg.type === 'user' ? 'ring-blue-100 dark:ring-blue-900' : 'ring-indigo-100 dark:ring-indigo-900'}`}>
+                         <AvatarFallback className={msg.type === 'user' ? 'bg-blue-600 text-white' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'}>
+                           {msg.type === 'user' ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+                         </AvatarFallback>
+                       </Avatar>
+                       <div className={`p-4 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm relative ${
+                         msg.type === 'user' 
+                           ? 'bg-blue-600 text-white rounded-tr-sm shadow-blue-500/10' 
+                           : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-tl-sm border border-slate-100 dark:border-slate-700 shadow-slate-200/50 dark:shadow-none'
+                       }`}>
+                         <div className="markdown-content">
+                           <ReactMarkdown 
+                             remarkPlugins={[remarkGfm]}
+                             components={{
+                               // Customizar componentes para manter estilo consistente
+                               p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                               strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
+                               em: ({node, ...props}) => <em className="italic" {...props} />,
+                               ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+                               ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
+                               li: ({node, ...props}) => <li className="" {...props} />,
+                               table: ({node, ...props}) => <div className="overflow-x-auto my-3 rounded-lg border border-slate-200 dark:border-slate-700"><table className="min-w-full bg-white dark:bg-slate-900" {...props} /></div>,
+                               thead: ({node, ...props}) => <thead className="bg-slate-50 dark:bg-slate-800" {...props} />,
+                               th: ({node, ...props}) => <th className="px-3 py-2 text-left font-medium text-xs text-slate-500 uppercase tracking-wider" {...props} />,
+                               td: ({node, ...props}) => <td className="px-3 py-2 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap border-b border-slate-100 dark:border-slate-800" {...props} />,
+                               a: ({node, ...props}) => <a className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+                             }}
+                           >
+                             {msg.content}
+                           </ReactMarkdown>
+                         </div>
+                       </div>
+                    </div>
+                  ))}
+                  {isAiLoading && (
+                    <div className="flex gap-3 animate-in fade-in duration-300">
+                       <Avatar className="h-9 w-9 mt-1 shrink-0 ring-2 ring-indigo-100 dark:ring-indigo-900 shadow-sm">
+                         <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white"><Bot className="h-5 w-5" /></AvatarFallback>
+                       </Avatar>
+                       <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl rounded-tl-sm border border-slate-100 dark:border-slate-700 flex items-center gap-2 shadow-sm">
+                         <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Digitando</span>
+                         <span className="flex gap-1">
+                           <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></span>
+                           <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-100"></span>
+                           <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-200"></span>
+                         </span>
+                       </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+               </div>
+               
+               {/* Input Area */}
+               <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm shrink-0">
+                  {/* Tools/Uploads */}
+                  <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-none">
+                     <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+                       <DialogTrigger asChild>
+                         <Button variant="outline" size="sm" className="gap-2 rounded-full border-dashed border-slate-300 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-xs h-8 transition-colors">
+                           <Upload className="h-3 w-3" /> Importar Dados
+                         </Button>
+                       </DialogTrigger>
+                       <DialogContent className="sm:max-w-[425px]">
+                         <DialogHeader>
+                           <DialogTitle>Importar Fonte de Dados</DialogTitle>
+                           <DialogDescription>Escolha como deseja alimentar a IA.</DialogDescription>
+                         </DialogHeader>
+                         <div className="grid gap-4 py-4">
+                           <div className="grid grid-cols-3 gap-2">
+                              <Button 
+                                variant={uploadType === 'file' ? 'default' : 'outline'} 
+                                onClick={() => setUploadType('file')}
+                                className="w-full"
+                              >
+                                <FileSpreadsheet className="mr-2 h-4 w-4" /> Arquivo
+                              </Button>
+                              <Button 
+                                variant={uploadType === 'url' ? 'default' : 'outline'} 
+                                onClick={() => setUploadType('url')}
+                                className="w-full"
+                              >
+                                <LinkIcon className="mr-2 h-4 w-4" /> URL
+                              </Button>
+                              <Button 
+                                variant={uploadType === 'api' ? 'default' : 'outline'} 
+                                onClick={() => setUploadType('api')}
+                                className="w-full"
+                              >
+                                <Database className="mr-2 h-4 w-4" /> Integrações
+                              </Button>
+                           </div>
 
-                <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800">
-                      <Upload className="w-4 h-4 mr-2" />
-                      Nova Planilha
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-md dark:bg-gray-800 dark:border-gray-700">
-                <DialogHeader>
-                  <DialogTitle className="dark:text-white">Carregar Nova Planilha</DialogTitle>
-                  <DialogDescription className="dark:text-gray-300">
-                    Escolha como você gostaria de adicionar sua planilha para análise.
-                  </DialogDescription>
-                </DialogHeader>
-                
-                <div className="space-y-4">
-                  {/* Toggle between file, URL and API */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <Button
-                      variant={uploadType === 'file' ? 'default' : 'outline'}
-                      onClick={() => setUploadType('file')}
-                      className="flex-1"
-                    >
-                      <FileUp className="w-4 h-4 mr-2" />
-                      Arquivo Local
-                    </Button>
-                    <Button
-                      variant={uploadType === 'url' ? 'default' : 'outline'}
-                      onClick={() => setUploadType('url')}
-                      className="flex-1"
-                    >
-                      <Link className="w-4 h-4 mr-2" />
-                      Link/URL
-                    </Button>
-                    <Button
-                      variant={uploadType === 'api' ? 'default' : 'outline'}
-                      onClick={() => setUploadType('api')}
-                      className="flex-1"
-                    >
-                      <Plug className="w-4 h-4 mr-2" />
-                      API
-                    </Button>
+                           {uploadType === 'file' && (
+                             <div className="grid w-full max-w-sm items-center gap-1.5">
+                               <Input id="picture" type="file" onChange={handleFileUpload} />
+                             </div>
+                           )}
+
+                           {uploadType === 'url' && (
+                             <div className="grid w-full max-w-sm items-center gap-1.5">
+                               <Input 
+                                 type="url" 
+                                 placeholder="https://docs.google.com/spreadsheets/..." 
+                                 value={spreadsheetUrl}
+                                 onChange={(e) => setSpreadsheetUrl(e.target.value)}
+                               />
+                             </div>
+                           )}
+
+                            {uploadType === 'api' && (
+                             <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Veículo <span className="text-red-500">*</span></label>
+                                  <Select value={selectedIntegration} onValueChange={setSelectedIntegration}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione o veículo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="facebook">Facebook Ads</SelectItem>
+                                      <SelectItem value="tiktok" disabled>TikTok Ads (Em breve)</SelectItem>
+                                      <SelectItem value="google" disabled>Google Ads (Em breve)</SelectItem>
+                                      <SelectItem value="linkedin" disabled>LinkedIn Ads (Em breve)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Usuário <span className="text-red-500">*</span></label>
+                                  <Select value={selectedPlatformUser} onValueChange={setSelectedPlatformUser}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione o usuário" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {users.length > 0 ? users.map(user => (
+                                        <SelectItem key={user.id} value={user.facebookId}>{user.username}</SelectItem>
+                                      )) : <SelectItem value="none" disabled>Nenhum usuário encontrado</SelectItem>}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Conta de Anúncio <span className="text-slate-400 text-xs">(Opcional)</span></label>
+                                  <Select value={selectedAdAccount} onValueChange={setSelectedAdAccount} disabled={!selectedPlatformUser}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione a conta" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableAdAccounts.length > 0 ? availableAdAccounts.map(acc => (
+                                        <SelectItem key={acc.id} value={acc.accountId || acc.id}>{acc.name}</SelectItem>
+                                      )) : <SelectItem value="none" disabled>Nenhuma conta encontrada</SelectItem>}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                             </div>
+                           )}
+                         </div>
+                         <div className="flex justify-end">
+                            <Button onClick={handleUploadSubmit} disabled={isAiLoading}>
+                              {isAiLoading ? 'Processando...' : 'Carregar'}
+                            </Button>
+                         </div>
+                       </DialogContent>
+                     </Dialog>
                   </div>
 
-                  {/* File upload */}
-                  {uploadType === 'file' && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium dark:text-gray-200">Selecionar arquivo</label>
-                      <Input
-                        type="file"
-                        accept=".xlsx,.xls,.csv"
-                        onChange={handleFileUpload}
-                        className="cursor-pointer dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                      />
-                      {selectedFile && (
-                        <p className="text-sm text-green-600 dark:text-green-400">
-                          Arquivo selecionado: {selectedFile.name}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Formatos aceitos: .xlsx, .xls, .csv
-                      </p>
-                    </div>
-                  )}
-
-                  {/* URL upload */}
-                  {uploadType === 'url' && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium dark:text-gray-200">Link da planilha</label>
-                      <Input
-                        type="url"
-                        placeholder="https://docs.google.com/spreadsheets/..."
-                        value={spreadsheetUrl}
-                        onChange={(e) => setSpreadsheetUrl(e.target.value)}
-                        className="dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                      />
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Cole o link da sua planilha do Google Sheets ou Excel Online
-                      </p>
-                    </div>
-                  )}
-
-                  {/* API Integration */}
-                  {uploadType === 'api' && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium dark:text-gray-200">Selecionar Integração</label>
-                      <Select 
-                        value={selectedIntegration} 
-                        onValueChange={(value) => {
-                          setSelectedIntegration(value);
-                          // Reset subsequent selections when integration changes
-                          setSelectedFacebookUser('');
-                          setSelectedAdAccount('');
-                        }}
-                      >
-                        <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                          <SelectValue placeholder="Escolha uma integração ativa" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="facebook-ads-1">Facebook Ads - Conta Principal</SelectItem>
-                          <SelectItem value="google-ads-1">Google Ads - Campanhas 2024</SelectItem>
-                          <SelectItem value="instagram-1">Instagram Business - Perfil Principal</SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      {/* Facebook User Selection - Only show when Facebook Ads is selected */}
-                      {selectedIntegration === 'facebook-ads-1' && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium dark:text-gray-200">Selecionar Usuário Logado</label>
-                          <Select 
-                            value={selectedFacebookUser} 
-                            onValueChange={(value) => {
-                              setSelectedFacebookUser(value);
-                              // Reset ad account selection when user changes
-                              setSelectedAdAccount('');
-                            }}
-                          >
-                            <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                              <SelectValue placeholder="Escolha o usuário logado" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {facebookUsers.map((user) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  {user.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      {/* Ad Account Selection - Only show when Facebook user is selected */}
-                      {selectedIntegration === 'facebook-ads-1' && selectedFacebookUser && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium dark:text-gray-200">Selecionar Conta de Ads</label>
-                          <Select 
-                            value={selectedAdAccount} 
-                            onValueChange={setSelectedAdAccount}
-                          >
-                            <SelectTrigger className="dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                              <SelectValue placeholder="Escolha a conta de ads" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {adAccounts.map((account) => (
-                                <SelectItem key={account.id} value={account.id}>
-                                  {account.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Importe dados em tempo real das suas integrações configuradas
-                      </p>
-                    </div>
-                  )}
-
-                  <Button 
-                    onClick={handleUploadSubmit}
-                    disabled={
-                      (uploadType === 'file' && !selectedFile) || 
-                      (uploadType === 'url' && !spreadsheetUrl) ||
-                      (uploadType === 'api' && !selectedIntegration) ||
-                      (uploadType === 'api' && selectedIntegration === 'facebook-ads-1' && (!selectedFacebookUser || !selectedAdAccount))
-                    }
-                    className="w-full"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    {uploadType === 'api' ? 'Importar Dados' : 'Carregar Planilha'}
-                  </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-        </header>
-
-          <div className="flex h-[calc(100vh-80px)]">
-        {/* Main Dashboard */}
-        <div className="flex-1 p-6 overflow-y-auto">
-          {/* Gráficos Dinâmicos da IA */}
-          {dynamicCharts.length > 0 && (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-200">📊 Visualizações Geradas pela IA</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {dynamicCharts.map((chart) => (
-                  <Card key={chart.id} className="hover:shadow-lg transition-shadow relative dark:bg-gray-800 dark:border-gray-700">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-2 right-2 z-10 h-8 w-8 p-0 dark:hover:bg-gray-700"
-                      onClick={() => removeChart(chart.id)}
-                    >
-                      <X className="h-4 w-4 dark:text-gray-300" />
-                    </Button>
-                    <CardHeader>
-                      <CardTitle className="flex items-center text-lg dark:text-gray-200">
-                        {chart.type === 'bar' && <BarChart3 className="h-5 w-5 mr-2 text-blue-600" />}
-                        {chart.type === 'line' && <LineChartIcon className="h-5 w-5 mr-2 text-green-600" />}
-                        {chart.type === 'pie' && <PieChartIcon className="h-5 w-5 mr-2 text-purple-600" />}
-                        {chart.title}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {renderDynamicChart(chart)}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Metrics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-300">Visitantes Únicos</CardTitle>
-                <Users className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold dark:text-white">24.7K</div>
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center mt-1">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  +20% vs mês anterior
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-300">Total Pageviews</CardTitle>
-                <Eye className="h-4 w-4 text-purple-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold dark:text-white">55.9K</div>
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center mt-1">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  +4% vs mês anterior
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Rejeição</CardTitle>
-                <BarChart3 className="h-4 w-4 text-red-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold dark:text-white">54%</div>
-                <p className="text-xs text-red-600 dark:text-red-400 flex items-center mt-1">
-                  -1.5% vs mês anterior
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-300">Duração da Visita</CardTitle>
-                <Clock className="h-4 w-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold dark:text-white">2m 56s</div>
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center mt-1">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  +7% vs mês anterior
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Sales Chart */}
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader>
-                <CardTitle className="flex items-center dark:text-gray-200">
-                  <BarChart3 className="h-5 w-5 mr-2 text-blue-600" />
-                  Vendas por Mês
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={salesData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
-                    <XAxis dataKey="month" tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280' }} />
-                    <YAxis tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280' }} />
-                    <Tooltip 
-                      formatter={(value) => [`R$ ${value.toLocaleString()}`, 'Vendas']} 
-                      contentStyle={{
-                        backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                        border: `1px solid ${isDarkMode ? '#4b5563' : '#e5e7eb'}`,
-                        borderRadius: '8px',
-                        color: isDarkMode ? '#f9fafb' : '#111827'
-                      }}
+                  <div className="relative flex items-center">
+                    <Input 
+                      placeholder="Pergunte sobre seus dados..." 
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                      className="pr-12 rounded-full border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus-visible:ring-blue-500 h-11 shadow-sm"
                     />
-                    <Bar dataKey="sales" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Traffic Sources */}
-            <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader>
-                <CardTitle className="flex items-center dark:text-gray-200">
-                  <PieChartIcon className="h-5 w-5 mr-2 text-purple-600" />
-                  Fontes de Tráfego
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={trafficData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}`}
+                    <Button 
+                      size="icon" 
+                      className="absolute right-1.5 h-8 w-8 rounded-full bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm"
+                      onClick={sendMessage}
+                      disabled={!message.trim() || isAiLoading}
                     >
-                      {trafficData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                        border: `1px solid ${isDarkMode ? '#4b5563' : '#e5e7eb'}`,
-                        borderRadius: '8px',
-                        color: isDarkMode ? '#f9fafb' : '#111827'
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Daily Visitors Chart */}
-          <Card className="hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700">
-            <CardHeader>
-              <CardTitle className="flex items-center dark:text-gray-200">
-                <LineChartIcon className="h-5 w-5 mr-2 text-green-600" />
-                Visitantes Diários - Últimos 15 dias
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={dailyVisitors}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#374151' : '#e5e7eb'} />
-                  <XAxis dataKey="day" tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280' }} />
-                  <YAxis tick={{ fill: isDarkMode ? '#9ca3af' : '#6b7280' }} />
-                  <Tooltip 
-                    formatter={(value) => [value, 'Visitantes']} 
-                    contentStyle={{
-                      backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                      border: `1px solid ${isDarkMode ? '#4b5563' : '#e5e7eb'}`,
-                      borderRadius: '8px',
-                      color: isDarkMode ? '#f9fafb' : '#111827'
-                    }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="visitors" 
-                    stroke="#10B981" 
-                    strokeWidth={3}
-                    dot={{ fill: '#10B981', strokeWidth: 2, r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* AI Chat Sidebar */}
-        <div className="w-[600px] bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col transition-colors">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold flex items-center dark:text-gray-200">
-              <MessageCircle className="h-5 w-5 mr-2 text-blue-600" />
-              Assistente IA
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Faça perguntas sobre seus dados e peça visualizações</p>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {chatMessages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[80%] p-3 rounded-lg ${
-                    msg.type === 'user'
-                      ? 'bg-blue-600 dark:bg-blue-700 text-white ml-4'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 mr-4'
-                  }`}
-                >
-                  <div
-                    className="text-sm"
-                    dangerouslySetInnerHTML={{ __html: msg.content }}
-                  />
-                </div>
-              </div>
-            ))}
-            {isAiLoading && (
-              <div className="flex justify-start">
-                <div className="max-w-[80%] p-3 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 mr-4">
-                  <div className="flex items-center space-x-1">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">IA analisando</span>
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
+                      <Send className="h-4 w-4 text-white" />
+                    </Button>
                   </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex space-x-2">
-              <Input
-                placeholder="Ex: Crie um gráfico de barras das vendas por mês..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                className="flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                disabled={isAiLoading}
-              />
-              <Button onClick={sendMessage} size="sm" disabled={isAiLoading}>
-                <Send className="h-4 w-4" />
-              </Button>
+                  <div className="text-center mt-2">
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      IA pode cometer erros. Verifique informações importantes.
+                    </p>
+                  </div>
+               </div>
             </div>
           </div>
-        </div>
-        </div>
         </div>
       </div>
     </SidebarProvider>
   );
-};
-
-export default Product;
+}

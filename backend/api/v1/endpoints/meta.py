@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
-from backend.services.meta_extractor import buscar_dados_meta
+from services.meta_extractor import buscar_dados_meta
 
 router = APIRouter()
 

@@ -27,23 +27,22 @@ import {
   AlertCircle,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RefreshCcw,
+  Loader2
 } from 'lucide-react';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FacebookOAuthService, getAllFacebookUsers, getUserAdAccountsFromBackend, FacebookUser, FacebookAccount } from '@/services/oauth';
 import { useToast } from '@/hooks/use-toast';
 import { ProductLayout } from '@/components/ProductLayout';
-
-interface Integration {
-  id: string;
-  name: string;
-  type: 'facebook' | 'google' | 'instagram' | 'linkedin';
-  status: 'connected' | 'disconnected' | 'error';
-  apiKey?: string;
-  accessToken?: string;
-  accountId?: string;
-  lastSync?: string;
-  isActive: boolean;
-}
+import { useIntegrations, Integration } from "@/contexts/IntegrationsContext";
 
 const integrationTypes = [
   {
@@ -94,7 +93,7 @@ const integrationTypes = [
 
 const Integrations = () => {
   const { toast } = useToast();
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const { integrations, setIntegrations, refreshIntegrations } = useIntegrations();
 
   const [selectedIntegrationType, setSelectedIntegrationType] = useState<typeof integrationTypes[0] | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -111,28 +110,6 @@ const Integrations = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const accountsPerPage = 10;
 
-  const getStatusIcon = (status: Integration['status']) => {
-    switch (status) {
-      case 'connected':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'disconnected':
-        return <XCircle className="h-4 w-4 text-gray-400" />;
-      case 'error':
-        return <AlertCircle className="h-4 w-4 text-red-500" />;
-    }
-  };
-
-  const getStatusBadge = (status: Integration['status']) => {
-    switch (status) {
-      case 'connected':
-        return <Badge className="bg-green-100 text-green-800">Conectado</Badge>;
-      case 'disconnected':
-        return <Badge variant="secondary">Desconectado</Badge>;
-      case 'error':
-        return <Badge className="bg-red-100 text-red-800">Erro</Badge>;
-    }
-  };
-
   const fetchUsers = async () => {
     try {
       const data = await getAllFacebookUsers();
@@ -143,31 +120,8 @@ const Integrations = () => {
     }
   };
 
-  const fetchIntegrations = async () => {
-    try {
-      // TODO: Substituir por /user_facebook ou /accounts_ads_facebook
-      const response = await fetch('http://localhost:8000/contas');
-      const data = await response.json();
-
-      const parsed: Integration[] = data.map((item: any) => ({
-        id: String(item.id),
-        name: item.nome_conta,
-        type: item.tipo,
-        status: 'connected',
-        accessToken: item.token,
-        accountId: item.identificador_conta,
-        lastSync: item.data_conexao,
-        isActive: item.ativo,
-      }));
-
-      setIntegrations(parsed);
-    } catch (error) {
-      console.error("Erro ao buscar integrações:", error);
-    }
-  };
-
   useEffect(() => {
-    fetchIntegrations();
+    refreshIntegrations();
     fetchUsers();
   }, []);
 
@@ -229,7 +183,7 @@ const Integrations = () => {
 
     try {
       // TODO: Substituir por /user_facebook ou /accounts_ads_facebook
-      const response = await fetch('http://localhost:8000/contas', {
+      const response = await fetch('http://localhost:8000/accounts_ads_facebook/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -244,7 +198,7 @@ const Integrations = () => {
         description: `${newIntegration.nome_conta} foi conectada com sucesso.`,
       });
 
-      await fetchIntegrations();
+      await refreshIntegrations();
 
       setIsDialogOpen(false);
       setFormData({});
@@ -262,7 +216,7 @@ const Integrations = () => {
     console.log("🔁 Atualizando integração com ID:", id); 
     try {
       // TODO: Substituir por /user_facebook ou /accounts_ads_facebook
-      await fetch(`http://localhost:8000/contas/${id}`, {
+      await fetch(`http://localhost:8000/accounts_ads_facebook/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -290,7 +244,7 @@ const Integrations = () => {
   try {
       console.log("Deletando integração com ID:", id);
       // TODO: Substituir por /user_facebook ou /accounts_ads_facebook
-      await fetch(`http://localhost:8000/contas/${id}`, {
+      await fetch(`http://localhost:8000/accounts_ads_facebook/${id}`, {
         method: 'DELETE',
       });
       setIntegrations(prev => prev.filter(integration => integration.id !== String(id)));
@@ -412,7 +366,7 @@ const Integrations = () => {
           });
           
           // Recarregar integrações
-          fetchIntegrations();
+          refreshIntegrations();
           
         } else if (event.data.type === 'OAUTH_ERROR') {
           performCleanup();
@@ -463,7 +417,7 @@ const Integrations = () => {
       });
       
       if (response.ok) {
-        await fetchIntegrations();
+        await refreshIntegrations();
         toast({
           title: "Contas importadas!",
           description: "Todas as contas do Facebook foram importadas com sucesso.",
@@ -512,269 +466,290 @@ const Integrations = () => {
 
   return (
     <ProductLayout title="Integrações de API">
-      <div className="space-y-6">
-        {/* Header com descrição */}
-        <div className="flex items-center justify-between">
+      <div className="h-full flex flex-col space-y-6 min-w-0">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <p className="text-gray-600 dark:text-gray-400">
-              Gerencie suas conexões com plataformas de marketing e dados
+            <h2 className="text-3xl font-bold tracking-tight">Central de Conexões</h2>
+            <p className="text-muted-foreground mt-1">
+              Gerencie suas conexões com plataformas de marketing e visualize o status das integrações.
             </p>
           </div>
-        </div>
-
-        {/* Available Integrations */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {integrationTypes.map((type) => {
-            const Icon = type.icon;
-            const isFacebook = type.type === 'facebook';
-            
-            return (
-              <Card 
-                key={type.type} 
-                className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => isFacebook ? handleOAuthIntegration(type) : handleAddIntegration(type)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-2 rounded-lg ${type.color}`}>
-                      <Icon className="h-5 w-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900 dark:text-white">
-                        {type.name}
-                      </h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {isFacebook ? 'Conecte suas contas automaticamente' : type.description}
-                      </p>
-                    </div>
-                    <Plus className="h-4 w-4 text-gray-400" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* User Filter */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Integrações Ativas
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              Visualize e gerencie suas conexões ativas
-            </p>
-          </div>
-          
-          {/* Search Bar in the middle */}
-          <div className="flex-1 max-w-md mx-8">
-            <label htmlFor="account-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Buscar
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                id="account-search"
-                placeholder="Nome da campanha, conjunto ou anúncio..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="pl-10"
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <label htmlFor="user-filter" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Filtrar por usuário:
-            </label>
-            <select
-              id="user-filter"
-              value={selectedFacebookId || ''}
-              onChange={(e) => setSelectedFacebookId(e.target.value || null)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px] z-10"
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={refreshIntegrations}
+              className="hidden md:flex"
             >
-              <option value="">---</option>
-              {users.map((user) => (
-                <option key={user.facebook_id} value={user.facebook_id}>
-                  {user.username}
-                </option>
-              ))}
-            </select>
-            
-            <Button 
-              onClick={handleSearchAccounts}
-              className="flex items-center space-x-2"
-            >
-              <Search className="h-4 w-4" />
-              <span>{loading ? 'Buscando...' : 'Buscar Contas'}</span>
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Atualizar Lista
             </Button>
           </div>
         </div>
 
-        {/* Integrações Ativas */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-h-[200px]">
-          {loading && (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400">Carregando contas...</p>
-            </div>
-          )}
+        {/* Available Integrations Panel */}
+        <div className="bg-card border rounded-xl p-5 shadow-sm space-y-5">
+          <div className="space-y-2">
+            <h3 className="text-lg font-medium leading-none">Nova Conexão</h3>
+            <p className="text-sm text-muted-foreground">
+              Selecione uma plataforma para adicionar uma nova integração.
+            </p>
+          </div>
           
-          {!loading && selectedFacebookId && !hasSearched && (
-            <div className="text-center py-8">
-              <div className="text-gray-400 mb-4">
-                <Search className="h-12 w-12 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Pronto para buscar
-              </h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                Clique no botão "Buscar Contas" para carregar as integrações deste usuário.
-              </p>
-            </div>
-          )}
-          
-          {!loading && selectedFacebookId && hasSearched && accounts.length === 0 && (
-            <div className="text-center py-8">
-              <div className="text-gray-400 mb-4">
-                <Settings className="h-12 w-12 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Nenhuma conta encontrada
-              </h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                Este usuário não possui contas conectadas.
-              </p>
-            </div>
-          )}
-          
-          {!loading && !selectedFacebookId && (
-            <div className="text-center py-8">
-              <div className="text-gray-400 mb-4">
-                <Settings className="h-12 w-12 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Selecione um usuário
-              </h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                Escolha um usuário acima para visualizar suas integrações ativas.
-              </p>
-            </div>
-          )}
-          
-          {!loading && filteredAccounts.length === 0 && searchTerm && (
-            <div className="text-center py-8">
-              <div className="text-gray-400 mb-4">
-                <Search className="h-12 w-12 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Nenhum resultado encontrado
-              </h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                Nenhuma conta encontrada com o termo "{searchTerm}".
-              </p>
-            </div>
-          )}
-          
-          {!loading && paginatedAccounts.length > 0 && (
-            <>
-              <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                {paginatedAccounts.map((conta) => {
-                  const integrationType = integrationTypes.find(t => t.type === 'facebook');
-                  const Icon = integrationType?.icon || Settings;
-                  
-                  return (
-                    <div key={conta.id} className="py-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className={`p-2 rounded-lg ${integrationType?.color || 'bg-gray-600'}`}>
-                          <Icon className="h-5 w-5 text-white" />
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <h3 className="font-medium text-gray-900 dark:text-white">
-                              {conta.name || conta.nome_conta}
-                            </h3>
-                            {conta.ativo ? (
-                              <Badge className="bg-green-100 text-green-800">Ativo</Badge>
-                            ) : (
-                              <Badge variant="secondary">Inativo</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                            <span>Account ID: {conta.account_id || conta.identificador_conta}</span>
-                            <span>Plataforma: {conta.plataforma}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <Label htmlFor={`toggle-${conta.id}`} className="text-sm">
-                            Ativo
-                          </Label>
-                          <Switch
-                            id={`toggle-${conta.id}`}
-                            checked={conta.ativo}
-                            onCheckedChange={(checked) => handleToggleIntegration(String(conta.id), checked)}
-                          />
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteIntegration(conta.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {integrationTypes.map((type) => {
+              const Icon = type.icon;
+              const isFacebook = type.type === 'facebook';
               
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
-                    Mostrando {startIndex + 1} a {Math.min(startIndex + accountsPerPage, filteredAccounts.length)} de {filteredAccounts.length} contas
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePreviousPage}
-                      disabled={currentPage === 1}
-                      className="flex items-center space-x-1"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      <span>Anterior</span>
-                    </Button>
-                    
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                        Página {currentPage} de {totalPages}
-                      </span>
+              return (
+                <Card 
+                  key={type.type} 
+                  className="cursor-pointer hover:shadow-md transition-all hover:border-primary/50 group"
+                  onClick={() => isFacebook ? handleOAuthIntegration(type) : handleAddIntegration(type)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className={`p-2 rounded-lg ${type.color} group-hover:scale-110 transition-transform`}>
+                        <Icon className="h-5 w-5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-foreground truncate">
+                          {type.name}
+                        </h3>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {isFacebook ? 'Conexão automática' : 'Conexão manual'}
+                        </p>
+                      </div>
+                      <Plus className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleNextPage}
-                      disabled={currentPage === totalPages}
-                      className="flex items-center space-x-1"
-                    >
-                      <span>Próxima</span>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Filters Panel */}
+        <div className="bg-card border rounded-xl p-5 shadow-sm space-y-5">
+           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+             <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+               <div className="space-y-2">
+                 <Label>Buscar</Label>
+                 <div className="relative">
+                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                   <Input
+                     placeholder="Nome da conta, ID ou plataforma..."
+                     value={searchTerm}
+                     onChange={(e) => {
+                       setSearchTerm(e.target.value);
+                       setCurrentPage(1);
+                     }}
+                     className="pl-10"
+                   />
+                 </div>
+               </div>
+               
+               <div className="space-y-2">
+                 <Label>Filtrar por Usuário</Label>
+                 <Select value={selectedFacebookId || "all"} onValueChange={(val) => setSelectedFacebookId(val === "all" ? null : val)}>
+                   <SelectTrigger>
+                     <SelectValue placeholder="Todos os usuários" />
+                   </SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="all">Todos os usuários</SelectItem>
+                     {users.map((u) => (
+                       <SelectItem key={u.facebook_id} value={u.facebook_id || "undefined"}>
+                         {u.username}
+                       </SelectItem>
+                     ))}
+                   </SelectContent>
+                 </Select>
+               </div>
+             </div>
+             
+             <div className="lg:col-span-4 flex items-end">
+                <Button 
+                  onClick={handleSearchAccounts}
+                  className="w-full"
+                  disabled={loading || !selectedFacebookId}
+                >
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                  Buscar Contas do Usuário
+                </Button>
+             </div>
+           </div>
+        </div>
+
+        {/* Results Area */}
+        <div className="border rounded-xl bg-card shadow-sm flex flex-col min-w-0 max-w-full overflow-hidden flex-1">
+          <div className="p-4 border-b flex items-center justify-between bg-muted/30">
+             <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-background">
+                  {filteredAccounts.length} conexões
+                </Badge>
+             </div>
+             {/* Pagination */}
+             {totalPages > 1 && (
+               <div className="flex items-center gap-2">
+                 <Button
+                   variant="ghost"
+                   size="sm"
+                   onClick={handlePreviousPage}
+                   disabled={currentPage === 1}
+                 >
+                   Anterior
+                 </Button>
+                 <span className="text-sm text-muted-foreground">
+                   {currentPage} / {totalPages}
+                 </span>
+                 <Button
+                   variant="ghost"
+                   size="sm"
+                   onClick={handleNextPage}
+                   disabled={currentPage === totalPages}
+                 >
+                   Próxima
+                 </Button>
+               </div>
+             )}
+          </div>
+
+          <div className="w-full overflow-hidden flex-1">
+            <div className="w-full overflow-x-auto h-full">
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="w-[50px]">Status</TableHead>
+                    <TableHead>Conta</TableHead>
+                    <TableHead>Plataforma</TableHead>
+                    <TableHead>ID da Conta</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-24 text-center">
+                        <div className="flex justify-center items-center">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          <span className="ml-2 text-muted-foreground">Carregando conexões...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : paginatedAccounts.length > 0 ? (
+                    paginatedAccounts.map((conta) => {
+                      // Tenta encontrar o tipo de integração pelo nome da plataforma
+                      const integrationType = integrationTypes.find(t => 
+                        conta.plataforma?.toLowerCase().includes(t.type) || 
+                        t.name.toLowerCase() === conta.plataforma?.toLowerCase()
+                      ) || integrationTypes[0]; // Fallback para Facebook se não encontrar
+                      
+                      const Icon = integrationType.icon;
+                      
+                      return (
+                        <TableRow key={conta.id} className="group hover:bg-muted/40 transition-all duration-200 border-b border-muted/60">
+                          <TableCell className="w-[100px]">
+                            <div className="flex items-center gap-2">
+                               {conta.ativo ? (
+                                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Ativo</span>
+                                  </div>
+                               ) : (
+                                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-500/10 border border-gray-500/20">
+                                    <div className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+                                    <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Inativo</span>
+                                  </div>
+                               )}
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg bg-background border shadow-sm group-hover:border-primary/20 transition-colors`}>
+                                <Icon className={`h-4 w-4 ${conta.ativo ? 'text-primary' : 'text-muted-foreground'}`} />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
+                                  {conta.name || conta.nome_conta}
+                                </span>
+                                {conta.ativo && (
+                                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <CheckCircle className="h-3 w-3 text-emerald-500" /> Sincronizado
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="font-normal bg-background/50 backdrop-blur-sm border-muted-foreground/20">
+                                {conta.plataforma}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell>
+                            <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded w-fit">
+                              {conta.account_id || conta.identificador_conta}
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center gap-2 mr-3 px-2 py-1 rounded-md hover:bg-muted transition-colors cursor-pointer" onClick={() => handleToggleIntegration(String(conta.id), !conta.ativo)}>
+                                <Label htmlFor={`toggle-${conta.id}`} className="sr-only">Alternar status</Label>
+                                <span className="text-xs text-muted-foreground font-medium">
+                                  {conta.ativo ? 'Desativar' : 'Ativar'}
+                                </span>
+                                <Switch
+                                  id={`toggle-${conta.id}`}
+                                  checked={conta.ativo}
+                                  onCheckedChange={(checked) => handleToggleIntegration(String(conta.id), checked)}
+                                  className="data-[state=checked]:bg-emerald-500"
+                                />
+                              </div>
+                              
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteIntegration(conta.id)}
+                                className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50/50 transition-colors rounded-full"
+                                title="Remover conexão"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-64 text-center">
+                        <div className="flex flex-col items-center justify-center text-muted-foreground">
+                          <div className="rounded-full bg-muted p-4 mb-4">
+                            <Search className="h-8 w-8 opacity-50" />
+                          </div>
+                          <p className="text-lg font-medium">Nenhuma conexão encontrada</p>
+                          <p className="text-sm max-w-sm mt-1">
+                            {selectedFacebookId 
+                              ? "Tente ajustar os filtros ou buscar novamente." 
+                              : "Selecione um usuário para visualizar suas contas."}
+                          </p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+          
+          <div className="p-4 border-t bg-muted/30 text-xs text-center text-muted-foreground">
+             Gerencie suas conexões para garantir que os dados estejam sempre atualizados.
+          </div>
         </div>
 
         {/* OAuth Integration Dialog */}
@@ -789,7 +764,7 @@ const Integrations = () => {
               <DialogTitle className="text-xl font-semibold">
                 Conectar {selectedIntegrationType?.name}
               </DialogTitle>
-              <DialogDescription className="text-gray-600 dark:text-gray-400 mt-2">
+              <DialogDescription className="text-muted-foreground mt-2">
                 Escolha como deseja conectar sua conta {selectedIntegrationType?.name} para importar dados de campanhas
               </DialogDescription>
             </DialogHeader>
@@ -812,16 +787,16 @@ const Integrations = () => {
                 )}
               </Button>
               
-              <p className="text-sm text-center text-gray-500 dark:text-gray-400 px-4">
+              <p className="text-sm text-center text-muted-foreground px-4">
                 Será aberta uma nova janela para autenticação segura com o Facebook
               </p>
               
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                  <div className="w-full border-t border-border"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="bg-background px-4 text-gray-500 dark:text-gray-400 font-medium">OU</span>
+                  <span className="bg-background px-4 text-muted-foreground font-medium">OU</span>
                 </div>
               </div>
               
@@ -843,7 +818,7 @@ const Integrations = () => {
                 Copiar link para navegador multilogin
               </Button>
               
-              <p className="text-xs text-center text-gray-500 dark:text-gray-400 px-4">
+              <p className="text-xs text-center text-muted-foreground px-4">
                 Use esta opção para conectar em um navegador com múltiplas contas ou compartilhar com colaboradores
               </p>
             </div>
@@ -852,11 +827,11 @@ const Integrations = () => {
 
         {/* Loading Overlay */}
         {isImporting && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-900 dark:text-white font-medium mb-2">Importando contas...</p>
-              <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">Aguarde enquanto importamos suas contas do Facebook</p>
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-card border p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-foreground font-medium mb-2">Importando contas...</p>
+              <p className="text-muted-foreground text-sm mb-4">Aguarde enquanto importamos suas contas do Facebook</p>
               
               <Button 
                 variant="outline" 

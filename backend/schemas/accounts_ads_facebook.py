@@ -13,6 +13,9 @@ class AccountAdsFacebookBase(BaseModel):
 class AccountAdsFacebookCreate(AccountAdsFacebookBase):
     pass
 
+class AccountAdsFacebookUpdate(BaseModel):
+    ativo: bool
+
 class AccountAdsFacebook(AccountAdsFacebookBase):
     id: int
 
